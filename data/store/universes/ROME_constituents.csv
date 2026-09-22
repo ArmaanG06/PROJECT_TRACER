@@ -1,0 +1,43 @@
+Symbol,Group,Description
+GLD,metals,SPDR Physical Gold
+SLV,metals,iShares Physical Silver
+GDX,metals,VanEck Large Cap Gold Miners
+GDXJ,metals,VanEck Small-Mid Cap Gold Miners
+SIL,metals,Global X Silver Miners
+XLE,energy,Energy Select Sector SPDR — large-cap US integrated energy and E&P
+XOP,energy,SPDR S&P Oil & Gas E&P — equal-weight US exploration and production
+OIH,energy,VanEck Oil Services — oilfield services and drilling equities
+USO,energy,United States Oil Fund — front-month WTI crude futures (roll exposure)
+UNG,energy,United States Natural Gas Fund — front-month Henry Hub futures (roll exposure)
+SHY,rates,iShares 1-3 Year Treasury — short-duration US Treasuries
+IEF,rates,iShares 7-10 Year Treasury — intermediate-duration US Treasuries
+TLT,rates,iShares 20+ Year Treasury — long-duration US Treasuries
+TIP,rates,iShares TIPS Bond — inflation-protected US Treasuries
+LQD,credit,iShares iBoxx Investment Grade Corporate Bond — IG credit
+HYG,credit,iShares iBoxx High Yield Corporate Bond — HY credit
+JNK,credit,SPDR Bloomberg High Yield Bond — HY credit (HYG alternative)
+EMB,credit,iShares JP Morgan USD Emerging Markets Bond — USD-denominated EM sovereign debt
+XLF,sectors,Financial Select Sector SPDR
+KRE,sectors,SPDR S&P Regional Banking
+XLP,sectors,Consumer Staples Select Sector SPDR
+XLU,sectors,Utilities Select Sector SPDR
+XLK,sectors,Technology Select Sector SPDR
+XLI,sectors,Industrial Select Sector SPDR
+XLV,sectors,Health Care Select Sector SPDR
+XLY,sectors,Consumer Discretionary Select Sector SPDR
+SPY,broad,SPDR S&P 500
+IWM,broad,iShares Russell 2000
+QQQ,broad,Invesco QQQ — Nasdaq-100
+EWA,intl,iShares MSCI Australia — Australian equities (USD-translated)
+EWC,intl,iShares MSCI Canada — Canadian equities (USD-translated)
+FXI,intl,iShares China Large-Cap — Chinese large-caps listed in Hong Kong
+EWH,intl,iShares MSCI Hong Kong — Hong Kong domestic equities
+EWJ,intl,iShares MSCI Japan — Japanese equities (USD-translated)
+EWZ,intl,iShares MSCI Brazil — Brazilian equities (USD-translated)
+UUP,fx,US Dollar Index Bullish — long DXY basket via futures
+FXE,fx,Euro — EUR deposit account
+FXB,fx,British Pound — GBP deposit account
+FXA,fx,Australian Dollar — AUD deposit account
+FXC,fx,Canadian Dollar — CAD deposit account
+FXY,fx,Japanese Yen — JPY deposit account
+FXF,fx,Swiss Franc — CHF deposit account

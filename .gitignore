@@ -1,0 +1,13 @@
+# Environment
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Cache is disposable — re-pullable from the providers
+data/store/cache/

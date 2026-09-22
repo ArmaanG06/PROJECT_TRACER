@@ -1,0 +1,35 @@
+# Project Tracer settings. Secrets go in .env (gitignored), not here.
+
+paths:
+  universes: data/store/universes
+  cache: data/store/cache
+
+providers:
+  # Failover order. get_prices(source=...) starts here and works down the list.
+  order: [ibkr, wrds, yfinance]
+
+  ibkr:
+    host: 127.0.0.1
+    port: 7497          # TWS paper. live 7496 | Gateway paper 4002 | live 4001
+    client_id: 11
+    timeout: 30
+    # TWS allows 60 historical requests per 10 min and no repeat request for
+    # the same contract within 2s. Sleep this long between requests.
+    pace_seconds: 2.5
+
+  wrds:
+    username: null      # null -> TRACER_WRDS_USERNAME, else the pgpass user
+    daily_table: crsp.dsf_v2
+    info_table: crsp.stksecurityinfohist
+
+  yfinance:
+    # Passed explicitly: yfinance's default flipped to true, which DROPS the
+    # Adj Close column and overwrites Close with the adjusted series.
+    auto_adjust: false
+
+# How many calendar days short of the requested `end` a series may stop before
+# it counts as a failure (covers weekends and holidays).
+coverage_slack_days: 5
+
+logging:
+  level: INFO
