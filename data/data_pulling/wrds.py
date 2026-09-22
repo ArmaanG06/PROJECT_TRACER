@@ -28,9 +28,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..config import get_settings
-from ..errors import CoverageError, ProviderUnavailable, SymbolNotFound
-from .base import Provider
+from . import CoverageError, Provider, ProviderUnavailable, SymbolNotFound, setting
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +77,7 @@ class WrdsProvider(Provider):
     adjustment = "crsp_total_return_index"
 
     def __init__(self):
-        config = get_settings().provider("wrds")
+        config = setting("providers.wrds", {}) or {}
         self.username = (
             config.get("username")
             or os.environ.get("TRACER_WRDS_USERNAME")

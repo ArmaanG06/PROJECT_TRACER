@@ -1,24 +1,25 @@
-# Project Tracer settings. Secrets go in .env (gitignored), not here.
+# Project Tracer config. No secrets here.
+# WRDS password lives in pgpass:
+#   Windows  %APPDATA%\postgresql\pgpass.conf
+#   Linux    ~/.pgpass  (chmod 600)
+#   Format   wrds-pgdata.wharton.upenn.edu:9737:wrds:<user>:<password>
 
 paths:
   universes: data/store/universes
   cache: data/store/cache
 
 providers:
-  # Failover order. get_prices(source=...) starts here and works down the list.
-  order: [ibkr, wrds, yfinance]
-
   ibkr:
     host: 127.0.0.1
     port: 7497          # TWS paper. live 7496 | Gateway paper 4002 | live 4001
     client_id: 11
     timeout: 30
-    # TWS allows 60 historical requests per 10 min and no repeat request for
-    # the same contract within 2s. Sleep this long between requests.
+    # TWS allows 60 historical requests per 10 min and no repeat for the same
+    # contract within 2s. Sleep this long between requests.
     pace_seconds: 2.5
 
   wrds:
-    username: null      # null -> TRACER_WRDS_USERNAME, else the pgpass user
+    username: null      # null -> read it from pgpass
     daily_table: crsp.dsf_v2
     info_table: crsp.stksecurityinfohist
 
@@ -27,9 +28,18 @@ providers:
     # Adj Close column and overwrites Close with the adjusted series.
     auto_adjust: false
 
-# How many calendar days short of the requested `end` a series may stop before
+# How many calendar days short of the requested end a series may stop before
 # it counts as a failure (covers weekends and holidays).
 coverage_slack_days: 5
 
 logging:
   level: INFO
+
+# Registry of algos. Each one lives in programs/<NAME>/.
+# status: dev | paper | live | off
+strategies:
+  ROME:
+    universe: ROME
+    status: dev
+    enabled: true
+    description: ETF pairs trading across commodity, rates, credit and FX proxies.

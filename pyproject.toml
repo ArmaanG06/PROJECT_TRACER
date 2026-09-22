@@ -1,38 +1,25 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "project-tracer"
 version = "0.1.0"
-description = "Project Tracer — systematic trading book: data layer and command center."
-readme = "README.md"
 requires-python = ">=3.11"
-authors = [{ name = "ArmaanG06" }]
-
 dependencies = [
-    "pandas>=2.2.3,<3.0",
-    "numpy>=2.0,<3.0",
+    "pandas>=2.2,<3.0",
     "pyarrow>=17.0,<26.0",
     "PyYAML>=6.0,<7.0",
-    "python-dotenv>=1.0,<2.0",
     "ib_async>=2.0,<3.0",
     "yfinance>=0.2.55,<2.0",
     "wrds>=3.3,<4.0",
-    "SQLAlchemy>=2.0,<3.0",
-    "psycopg2-binary>=2.9,<3.0",
-    "typer>=0.12,<1.0",
-    "rich>=13.0,<16.0",
     "streamlit>=1.40,<2.0",
 ]
 
-[project.scripts]
-tracer = "command_center.cli:app"
-
-# Data CODE lives under data/data_pulling/ but must import as the top-level
-# package `data_pulling` from anywhere (including programs/ROME/). package-dir
-# remaps the import name onto that directory; an editable install writes a
-# path finder for it, so no sys.path manipulation is ever needed.
+# This is the only reason this file exists: it maps the import name
+# `data_pulling` onto data/data_pulling/, so `pip install -e .` makes
+# `from data_pulling import get_prices` work from programs/ROME/ and anywhere
+# else, with no sys.path hacks.
 [tool.setuptools]
-package-dir = { "data_pulling" = "data/data_pulling", "command_center" = "command_center" }
-packages = ["data_pulling", "data_pulling.providers", "command_center"]
+package-dir = { "data_pulling" = "data/data_pulling" }
+packages = ["data_pulling"]
