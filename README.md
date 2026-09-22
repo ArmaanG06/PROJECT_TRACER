@@ -24,7 +24,17 @@ venv/Scripts/python -m pip install -e .
 ```
 
 That mapping is what makes `from data_pulling import get_prices` work from
-`programs/ROME/` with no `sys.path` hacks.
+`programs/ROME/` — or any other folder — with no `sys.path` hacks. Paths inside
+the package resolve off the repo root, found by walking up from the package
+file itself, so they never depend on where you run from.
+
+**Re-run `pip install -e .` if you move, rename or copy the project folder, or
+rebuild the venv.** The editable install writes your absolute path into
+`venv/Lib/site-packages/__editable___project_tracer_*_finder.py`, and that path
+goes stale. `ModuleNotFoundError: No module named 'data_pulling'` means this.
+
+`project_tracer.egg-info/` is throwaway build metadata; it is gitignored, safe
+to delete, and regenerated on each install.
 
 WRDS credentials go in pgpass, never in the repo — on Windows
 `%APPDATA%\postgresql\pgpass.conf`, format
