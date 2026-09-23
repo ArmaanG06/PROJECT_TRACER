@@ -24,9 +24,10 @@ venv/Scripts/python -m pip install -e .
 ```
 
 That mapping is what makes `from data_pulling import get_prices` work from
-`programs/ROME/` — or any other folder — with no `sys.path` hacks. Paths inside
-the package resolve off the repo root, found by walking up from the package
-file itself, so they never depend on where you run from.
+`programs/ROME/` — or any other folder. Paths inside the package resolve off
+the repo root, found by walking up from the package file itself, so they never
+depend on where you run from. (`rome.py` also appends `data/` to `sys.path` as
+a belt-and-braces fallback, so the import works even before you install.)
 
 **Use the venv's interpreter.** There are several Pythons on this machine and
 `python` resolves to `C:\Python314`, which has none of these packages.
