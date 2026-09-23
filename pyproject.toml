@@ -13,13 +13,13 @@ dependencies = [
     "ib_async>=2.0,<3.0",
     "yfinance>=0.2.55,<2.0",
     "wrds>=3.3,<4.0",
-    "streamlit>=1.40,<2.0",
 ]
 
 # This is the only reason this file exists: it maps the import name
 # `data_pulling` onto data/data_pulling/, so `pip install -e .` makes
 # `from data_pulling import get_prices` work from programs/ROME/ and anywhere
-# else, with no sys.path hacks.
+# else. Note this registers the package in the VENV ONLY -- programs/ROME/
+# rome.py also appends data/ to sys.path so it works under any interpreter.
 [tool.setuptools]
 package-dir = { "data_pulling" = "data/data_pulling" }
 packages = ["data_pulling"]

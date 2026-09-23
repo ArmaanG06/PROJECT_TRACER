@@ -14,7 +14,7 @@ data/
     universes/ROME_constituents.csv
     cache/<source>/<SYMBOL>.parquet   (gitignored)
 programs/ROME/rome.py         strategy code goes here
-command_center/mockup.py      visual mockup, not wired up
+command_center/mockup.html    visual mockup — just open it in a browser
 ```
 
 ## Setup
@@ -27,6 +27,12 @@ That mapping is what makes `from data_pulling import get_prices` work from
 `programs/ROME/` — or any other folder — with no `sys.path` hacks. Paths inside
 the package resolve off the repo root, found by walking up from the package
 file itself, so they never depend on where you run from.
+
+**Use the venv's interpreter.** There are several Pythons on this machine and
+`python` resolves to `C:\Python314`, which has none of these packages.
+`.vscode/settings.json` pins VSCode to `venv/Scripts/python.exe` so Run/Debug
+and new terminals get the right one. From a shell, call it explicitly:
+`venv/Scripts/python programs/ROME/rome.py`.
 
 **Re-run `pip install -e .` if you move, rename or copy the project folder, or
 rebuild the venv.** The editable install writes your absolute path into
@@ -79,11 +85,8 @@ change. Register it in the `strategies:` block of `config/settings.yaml`.
 
 ## Command center
 
-```bash
-streamlit run command_center/mockup.py
-```
-
-A visual mockup with hardcoded numbers — layout only, nothing connected.
+Open `command_center/mockup.html` in a browser. Static HTML with hardcoded
+numbers — layout only, nothing connected, no server and no dependencies.
 
 ## Provider notes
 
@@ -94,7 +97,9 @@ A visual mockup with hardcoded numbers — layout only, nothing connected.
 - **WRDS/CRSP** — CIZ tables (`crsp.dsf_v2`, `crsp.stksecurityinfohist`). The
   legacy SIZ tables are end-of-life; Dec-2024 was the last release in that
   format. `adj_close` is a total-return index compounded from `dlyret` and
-  anchored to the final close.
+  anchored to the final close. **CRSP runs months behind** (currently ends
+  2025-12-31), so an open-ended request always fails its coverage check and
+  falls through to the next source — pass an explicit `end` to use WRDS.
 - **yfinance** — last resort, warns on every use. `auto_adjust=False` is passed
   explicitly because yfinance flipped that default, and under the new one
   `Adj Close` disappears and `Close` is overwritten with the adjusted series.

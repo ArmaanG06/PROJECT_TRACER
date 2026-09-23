@@ -1,0 +1,7 @@
+{
+  // You have several Pythons on PATH (C:\Python314, Python313, msys64, ...).
+  // Pin VSCode to this project's venv so Run/Debug and new terminals all use
+  // the interpreter that actually has pandas, ib_async, wrds and data_pulling.
+  "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
+  "python.terminal.activateEnvironment": true
+}

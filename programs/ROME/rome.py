@@ -16,6 +16,15 @@ Data comes in through one import; it does not care which vendor served it.
     python programs/ROME/rome.py
 """
 
+import sys
+from pathlib import Path
+
+# Make `data_pulling` importable no matter which Python runs this file. The
+# editable install only registers it inside venv/, so any other interpreter --
+# VSCode's Run button picking C:\Python314, say -- would not find it. Appended,
+# not inserted, so a properly installed copy still wins.
+sys.path.append(str(Path(__file__).resolve().parents[2] / "data"))
+
 from data_pulling import configure_logging, get_prices, load_symbols, to_wide
 
 UNIVERSE = "ROME"
