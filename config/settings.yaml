@@ -6,7 +6,10 @@
 
 paths:
   universes: data/store/universes
-  cache: data/store/cache
+  db: data/store          # holds <PROGRAM>.duckdb, one per program
+
+# Which program database get_prices() writes to when not given one explicitly.
+default_db: ROME
 
 providers:
   ibkr:

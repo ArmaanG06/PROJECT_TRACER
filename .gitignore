@@ -9,5 +9,8 @@ __pycache__/
 build/
 dist/
 
-# Cache is disposable — re-pullable from the providers
-data/store/cache/
+# Program databases — too large to commit. Recreate with:
+#   python data/build_db.py ROME --fill
+# (schema is in data/schema.sql, which IS committed)
+*.duckdb
+*.duckdb.wal

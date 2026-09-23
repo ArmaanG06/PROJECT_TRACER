@@ -8,11 +8,13 @@ universe.
 config/settings.yaml          providers, paths, strategy registry
 data/
   data_pulling/
-    __init__.py               the puller: get_prices, failover, cache, universes
+    __init__.py               the puller: get_prices, failover, store, universes
     ibkr.py  wrds.py  yfinance.py     one file per source
+  schema.sql                  database schema (committed)
+  build_db.py                 create/rebuild a program database
   store/
     universes/ROME_constituents.csv
-    cache/<source>/<SYMBOL>.parquet   (gitignored)
+    ROME.duckdb               one database per program (gitignored)
 programs/ROME/rome.py         strategy code goes here
 command_center/mockup.html    visual mockup — just open it in a browser
 ```
@@ -76,6 +78,35 @@ all of them to the next source. `mode="per_symbol"` lets each fail over alone.
 recorded in the `source` column. Ranges are never spliced across vendors —
 their adjustment methods and dividend timing differ, so a stitched series shows
 a return on the join date that never happened.
+
+## The database
+
+Prices live in one DuckDB file per program — `data/store/ROME.duckdb` — holding
+a `prices` table and a `meta` table (source, date range, row count, adjustment
+method, last pull) for every symbol.
+
+The `.duckdb` files are **not committed** (too large). The schema and the build
+script are, so anyone can recreate one:
+
+```bash
+python data/build_db.py ROME --fill              # schema + pull the universe
+python data/build_db.py ROME --show              # what's in it
+python data/build_db.py ROME --fill --source wrds --start 2015-01-01 --end 2025-12-31
+```
+
+`meta`'s primary key is `symbol` **alone**, deliberately — a symbol physically
+cannot hold two sources at once, so the no-mixing rule is enforced by the
+database rather than by convention. Writes replace a symbol wholesale.
+
+Query it directly whenever that's easier than going through `get_prices`:
+
+```python
+from data_pulling import connect
+connect("ROME").execute("SELECT symbol, count(*) FROM prices GROUP BY symbol").df()
+```
+
+DuckDB holds a file lock, so call `close_db()` when a script finishes if you
+want to open the database elsewhere.
 
 ## Writing a strategy
 

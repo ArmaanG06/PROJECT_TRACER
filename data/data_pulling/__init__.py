@@ -1,8 +1,11 @@
 """Project Tracer data puller.
 
 Everything except the per-source adapters lives here: settings, errors, the
-Provider base class, the universe loader, the parquet cache, and get_prices().
+Provider base class, the universe loader, the DuckDB store, and get_prices().
 One file per source sits alongside: ibkr.py, wrds.py, yfinance.py.
+
+Prices live in one DuckDB file per program (data/store/ROME.duckdb), schema in
+data/schema.sql. The files are gitignored; rebuild with data/build_db.py.
 
     from data_pulling import get_prices, to_wide, load_universe
 
@@ -305,57 +308,140 @@ def failover_chain(source: str) -> list[str]:
 
 
 # ======================================================================
-# Parquet cache: data/store/cache/<source>/<SYMBOL>.parquet
-# Keyed on (source, symbol) so two sources can never overwrite each other.
+# DuckDB store: one database per program, data/store/<PROGRAM>.duckdb
+#
+# Schema lives in data/schema.sql. The .duckdb files are gitignored; rebuild
+# one with `python data/build_db.py ROME --fill`.
+#
+# meta's primary key is symbol alone, so a symbol physically cannot hold two
+# sources at once -- the no-mixing rule is enforced by the database, not by
+# convention. Writes replace a symbol wholesale.
 # ======================================================================
-def cache_path(source: str, symbol: str) -> Path:
-    """Where a given series lives on disk."""
-    return store_path("cache") / source / f"{symbol.upper()}.parquet"
+DEFAULT_DB = "ROME"
+
+_PRICE_COLUMNS = "symbol, date, open, high, low, close, adj_close, volume, source"
 
 
-def cache_save(source: str, symbol: str, frame: pd.DataFrame) -> None:
-    """Write a series to the cache, replacing whatever was there."""
-    path = cache_path(source, symbol)
+def db_path(db: str | None = None) -> Path:
+    """Path to a program's database file."""
+    name = db or setting("default_db", DEFAULT_DB)
+    return store_path("db") / f"{name.upper()}.duckdb"
+
+
+_CONNECTIONS: dict[str, Any] = {}
+
+
+def connect(db: str | None = None):
+    """Open the program database, creating it from data/schema.sql if needed.
+
+    Connections are reused: opening a DuckDB file costs ~13ms while the queries
+    themselves take under 1ms, so open-per-call would dominate the runtime.
+    Call close_db() to release the file lock.
+    """
+    import duckdb
+
+    path = db_path(db)
+    key = str(path)
+    existing = _CONNECTIONS.get(key)
+    if existing is not None:
+        try:
+            existing.execute("SELECT 1")
+            return existing
+        except Exception:  # connection went stale; reopen below
+            _CONNECTIONS.pop(key, None)
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(path, index=False)
+    con = duckdb.connect(key)
+    con.execute((project_root() / "data" / "schema.sql").read_text(encoding="utf-8"))
+    _CONNECTIONS[key] = con
+    return con
 
 
-def cache_load(source: str, symbol: str) -> pd.DataFrame | None:
-    """Read a cached series, or None if absent or unreadable."""
-    path = cache_path(source, symbol)
+def close_db(db: str | None = None) -> None:
+    """Close cached connection(s), releasing the DuckDB file lock."""
+    keys = [str(db_path(db))] if db is not None else list(_CONNECTIONS)
+    for key in keys:
+        con = _CONNECTIONS.pop(key, None)
+        if con is not None:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+
+def cache_save(source: str, symbol: str, frame: pd.DataFrame, db: str | None = None) -> None:
+    """Write a series, replacing any existing rows for that symbol."""
+    symbol = symbol.upper()
+    payload = frame.copy()
+    payload["symbol"] = symbol
+    payload["source"] = source
+    payload["date"] = pd.to_datetime(payload["date"]).dt.date
+
+    con = connect(db)
+    con.register("incoming", payload)
+    # Delete-then-insert, in one transaction: a symbol is replaced wholesale,
+    # never appended to, so it can never end up half from one source and half
+    # from another.
+    con.execute("BEGIN TRANSACTION")
+    try:
+        con.execute("DELETE FROM prices WHERE symbol = ?", [symbol])
+        con.execute(f"INSERT INTO prices SELECT {_PRICE_COLUMNS} FROM incoming")
+        con.execute("DELETE FROM meta WHERE symbol = ?", [symbol])
+        con.execute(
+            "INSERT INTO meta VALUES (?, ?, ?, ?, ?, ?, current_timestamp)",
+            [
+                symbol,
+                source,
+                payload["date"].min(),
+                payload["date"].max(),
+                len(payload),
+                getattr(get_provider(source), "adjustment", "unknown"),
+            ],
+        )
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    finally:
+        con.unregister("incoming")
+
+
+def cache_load(source: str, symbol: str, db: str | None = None) -> pd.DataFrame | None:
+    """Read a cached series for this symbol AND source, or None."""
+    path = db_path(db)
     if not path.exists():
         return None
     try:
-        frame = pd.read_parquet(path)
+        frame = connect(db).execute(
+            "SELECT date, open, high, low, close, adj_close, volume FROM prices "
+            "WHERE symbol = ? AND source = ? ORDER BY date",
+            [symbol.upper(), source],
+        ).df()
     except Exception as exc:
-        logger.warning("[data_pulling] unreadable cache file %s: %s", path, exc)
+        logger.warning("[data_pulling] store read failed for %s: %s", symbol, exc)
+        return None
+
+    if frame.empty:
         return None
     frame["date"] = pd.to_datetime(frame["date"])
-    return frame.sort_values("date").reset_index(drop=True)
+    return frame
 
 
-def cache_status() -> pd.DataFrame:
-    """Summarise the cache: symbol, source, range, rows, last pull, staleness."""
-    rows = []
-    root = store_path("cache")
-    if root.exists():
-        for path in sorted(root.glob("*/*.parquet")):
-            try:
-                dates = pd.to_datetime(pd.read_parquet(path, columns=["date"])["date"])
-            except Exception:
-                continue
-            rows.append({
-                "symbol": path.stem,
-                "source": path.parent.name,
-                "start": dates.min().date(),
-                "end": dates.max().date(),
-                "rows": len(dates),
-                "pulled": pd.Timestamp(path.stat().st_mtime, unit="s").floor("s"),
-                "stale_days": (pd.Timestamp.today().normalize() - dates.max()).days,
-            })
-    return pd.DataFrame(
-        rows, columns=["symbol", "source", "start", "end", "rows", "pulled", "stale_days"]
-    )
+def cache_status(db: str | None = None) -> pd.DataFrame:
+    """Summarise the store: symbol, source, range, rows, last pull, staleness."""
+    columns = ["symbol", "source", "start", "end", "rows", "adjustment",
+               "pulled", "stale_days"]
+    path = db_path(db)
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+
+    frame = connect(db).execute(
+        "SELECT symbol, source, start_date AS start, end_date AS end, rows, "
+        "adjustment, pulled_at AS pulled, "
+        "date_diff('day', end_date, current_date) AS stale_days "
+        "FROM meta ORDER BY symbol"
+    ).df()
+    return frame if not frame.empty else pd.DataFrame(columns=columns)
 
 
 # ======================================================================
@@ -369,10 +455,10 @@ def _reason(exc: BaseException, limit: int = 110) -> str:
     return text[: limit - 1] + "…" if len(text) > limit else text
 
 
-def _fetch_one(source, symbol, start, end, use_cache, refresh) -> pd.DataFrame:
-    """One symbol from one source, served from cache when it covers the range."""
+def _fetch_one(source, symbol, start, end, use_cache, refresh, db) -> pd.DataFrame:
+    """One symbol from one source, served from the store when it covers the range."""
     if use_cache and not refresh:
-        cached = cache_load(source, symbol)
+        cached = cache_load(source, symbol, db)
         if cached is not None and not cached.empty:
             if cached["date"].iloc[0] <= start and cached["date"].iloc[-1] >= end:
                 return cached[
@@ -381,7 +467,7 @@ def _fetch_one(source, symbol, start, end, use_cache, refresh) -> pd.DataFrame:
 
     frame = get_provider(source).fetch(symbol, start, end)
     if use_cache:
-        cache_save(source, symbol, frame)
+        cache_save(source, symbol, frame, db)
     return frame
 
 
@@ -394,6 +480,7 @@ def get_prices(
     mode: Literal["strict", "per_symbol"] = "strict",
     use_cache: bool = True,
     refresh: bool = False,
+    db: str | None = None,
 ) -> pd.DataFrame:
     """Fetch daily total-return-adjusted bars.
 
@@ -408,8 +495,10 @@ def get_prices(
         mode: "strict" (default) requires every symbol to come from one source
             -- any failure retries the WHOLE basket on the next source.
             "per_symbol" lets each symbol fail over independently.
-        use_cache: Read from and write to the parquet cache.
-        refresh: Ignore the cache and re-pull.
+        use_cache: Read from and write to the program database.
+        refresh: Ignore the store and re-pull.
+        db: Which program database to use, e.g. "ROME". Defaults to
+            `default_db` in config/settings.yaml.
 
     Returns:
         Tidy long frame: date, open, high, low, close, adj_close, volume,
@@ -447,7 +536,7 @@ def get_prices(
             for symbol in tickers:
                 try:
                     attempt[symbol] = (
-                        _fetch_one(src, symbol, start_ts, end_ts, use_cache, refresh), src
+                        _fetch_one(src, symbol, start_ts, end_ts, use_cache, refresh, db), src
                     )
                 except _FAILOVER_ERRORS as exc:
                     if not fallback:
@@ -468,7 +557,7 @@ def get_prices(
             for index, src in enumerate(chain):
                 try:
                     resolved[symbol] = (
-                        _fetch_one(src, symbol, start_ts, end_ts, use_cache, refresh), src
+                        _fetch_one(src, symbol, start_ts, end_ts, use_cache, refresh, db), src
                     )
                     break
                 except _FAILOVER_ERRORS as exc:

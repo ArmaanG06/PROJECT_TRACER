@@ -25,9 +25,10 @@ from pathlib import Path
 # not inserted, so a properly installed copy still wins.
 sys.path.append(str(Path(__file__).resolve().parents[2] / "data"))
 
-from data_pulling import configure_logging, get_prices, load_symbols, to_wide
+from data_pulling import close_db, configure_logging, get_prices, load_symbols, to_wide
 
 UNIVERSE = "ROME"
+DB = "ROME"          # data/store/ROME.duckdb — one database per program
 START = "2010-01-01"
 SOURCE = "ibkr"
 
@@ -35,7 +36,7 @@ SOURCE = "ibkr"
 def load_prices():
     """Pull the ROME universe as a date x symbol frame of adjusted closes."""
     symbols = load_symbols(UNIVERSE)
-    prices = get_prices(symbols, START, source=SOURCE, mode="per_symbol")
+    prices = get_prices(symbols, START, source=SOURCE, mode="per_symbol", db=DB)
     return to_wide(prices, "adj_close")
 
 
@@ -49,6 +50,8 @@ def main() -> None:
     # pairs  = select_pairs(closes)
     # signal = zscore(spread(closes, pairs))
     # ...
+
+    close_db()  # release the DuckDB file lock
 
 
 if __name__ == "__main__":
