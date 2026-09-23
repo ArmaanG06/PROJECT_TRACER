@@ -8,9 +8,6 @@ paths:
   universes: data/store/universes
   db: data/store          # holds <PROGRAM>.duckdb, one per program
 
-# Which program database get_prices() writes to when not given one explicitly.
-default_db: ROME
-
 providers:
   ibkr:
     host: 127.0.0.1
@@ -38,11 +35,11 @@ coverage_slack_days: 5
 logging:
   level: INFO
 
-# Registry of algos. Each one lives in programs/<NAME>/.
+# Registry of algos. One name per program: ROME means programs/ROME/,
+# data/store/universes/ROME_constituents.csv and data/store/ROME.duckdb.
+# Nothing here needs to restate that.
 # status: dev | paper | live | off
 strategies:
   ROME:
-    universe: ROME
     status: dev
-    enabled: true
     description: ETF pairs trading across commodity, rates, credit and FX proxies.

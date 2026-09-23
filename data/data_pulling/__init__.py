@@ -317,21 +317,18 @@ def failover_chain(source: str) -> list[str]:
 # sources at once -- the no-mixing rule is enforced by the database, not by
 # convention. Writes replace a symbol wholesale.
 # ======================================================================
-DEFAULT_DB = "ROME"
-
 _PRICE_COLUMNS = "symbol, date, open, high, low, close, adj_close, volume, source"
 
 
-def db_path(db: str | None = None) -> Path:
-    """Path to a program's database file."""
-    name = db or setting("default_db", DEFAULT_DB)
-    return store_path("db") / f"{name.upper()}.duckdb"
+def db_path(db: str) -> Path:
+    """Path to a program's database file, e.g. db_path("ROME")."""
+    return store_path("db") / f"{db.upper()}.duckdb"
 
 
 _CONNECTIONS: dict[str, Any] = {}
 
 
-def connect(db: str | None = None):
+def connect(db: str):
     """Open the program database, creating it from data/schema.sql if needed.
 
     Connections are reused: opening a DuckDB file costs ~13ms while the queries
@@ -369,7 +366,7 @@ def close_db(db: str | None = None) -> None:
                 pass
 
 
-def cache_save(source: str, symbol: str, frame: pd.DataFrame, db: str | None = None) -> None:
+def cache_save(source: str, symbol: str, frame: pd.DataFrame, db: str) -> None:
     """Write a series, replacing any existing rows for that symbol."""
     symbol = symbol.upper()
     payload = frame.copy()
@@ -406,7 +403,7 @@ def cache_save(source: str, symbol: str, frame: pd.DataFrame, db: str | None = N
         con.unregister("incoming")
 
 
-def cache_load(source: str, symbol: str, db: str | None = None) -> pd.DataFrame | None:
+def cache_load(source: str, symbol: str, db: str) -> pd.DataFrame | None:
     """Read a cached series for this symbol AND source, or None."""
     path = db_path(db)
     if not path.exists():
@@ -427,7 +424,7 @@ def cache_load(source: str, symbol: str, db: str | None = None) -> pd.DataFrame 
     return frame
 
 
-def cache_status(db: str | None = None) -> pd.DataFrame:
+def cache_status(db: str) -> pd.DataFrame:
     """Summarise the store: symbol, source, range, rows, last pull, staleness."""
     columns = ["symbol", "source", "start", "end", "rows", "adjustment",
                "pulled", "stale_days"]
@@ -457,7 +454,11 @@ def _reason(exc: BaseException, limit: int = 110) -> str:
 
 def _fetch_one(source, symbol, start, end, use_cache, refresh, db) -> pd.DataFrame:
     """One symbol from one source, served from the store when it covers the range."""
-    if use_cache and not refresh:
+    # No db named means no program database to use, so go straight to the
+    # provider. There is no sensible global default: the database belongs to
+    # the program, and only the caller knows which program it is.
+    store = use_cache and db is not None
+    if store and not refresh:
         cached = cache_load(source, symbol, db)
         if cached is not None and not cached.empty:
             if cached["date"].iloc[0] <= start and cached["date"].iloc[-1] >= end:
@@ -466,7 +467,7 @@ def _fetch_one(source, symbol, start, end, use_cache, refresh, db) -> pd.DataFra
                 ].reset_index(drop=True)
 
     frame = get_provider(source).fetch(symbol, start, end)
-    if use_cache:
+    if store:
         cache_save(source, symbol, frame, db)
     return frame
 
@@ -497,8 +498,9 @@ def get_prices(
             "per_symbol" lets each symbol fail over independently.
         use_cache: Read from and write to the program database.
         refresh: Ignore the store and re-pull.
-        db: Which program database to use, e.g. "ROME". Defaults to
-            `default_db` in config/settings.yaml.
+        db: Which program's database to read and write, e.g. "ROME"
+            (data/store/ROME.duckdb). Omit it and nothing is stored -- the
+            data comes straight from the provider.
 
     Returns:
         Tidy long frame: date, open, high, low, close, adj_close, volume,

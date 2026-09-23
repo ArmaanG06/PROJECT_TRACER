@@ -85,12 +85,24 @@ Prices live in one DuckDB file per program — `data/store/ROME.duckdb` — hold
 a `prices` table and a `meta` table (source, date range, row count, adjustment
 method, last pull) for every symbol.
 
-The `.duckdb` files are **not committed** (too large). The schema and the build
-script are, so anyone can recreate one:
+**One name per program.** A program called ROME means `programs/ROME/`,
+`ROME_constituents.csv` and `ROME.duckdb`. Nothing in config restates that link,
+and there is no global "default database" — the database belongs to the program,
+so the caller names it: `get_prices(..., db="ROME")`. Omit `db` and nothing is
+stored; the data comes straight from the provider.
+
+The `.duckdb` files are **not committed** (too large). Two committed files let
+anyone recreate them:
+
+- `data/schema.sql` — the table definitions, applied automatically on first
+  connect. The one place the shape of the data is written down.
+- `data/build_db.py` — creates and fills a database. It takes the program name
+  as an argument, so it serves every program, not just ROME.
 
 ```bash
 python data/build_db.py ROME --fill              # schema + pull the universe
 python data/build_db.py ROME --show              # what's in it
+python data/build_db.py OSLO --fill              # a future program, same script
 python data/build_db.py ROME --fill --source wrds --start 2015-01-01 --end 2025-12-31
 ```
 

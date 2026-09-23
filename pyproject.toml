@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "project-tracer"
@@ -20,6 +20,9 @@ dependencies = [
 # `from data_pulling import get_prices` work from programs/ROME/ and anywhere
 # else. Note this registers the package in the VENV ONLY -- programs/ROME/
 # rome.py also appends data/ to sys.path so it works under any interpreter.
-[tool.setuptools]
-package-dir = { "data_pulling" = "data/data_pulling" }
-packages = ["data_pulling"]
+#
+# hatchling, not setuptools: setuptools writes a project_tracer.egg-info/
+# folder into the repo on every install. hatchling builds in a temp dir and
+# leaves nothing behind.
+[tool.hatch.build.targets.wheel]
+packages = ["data/data_pulling"]
