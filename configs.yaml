@@ -10,7 +10,9 @@
 data:
   # Canonical frame columns every provider returns, in order.
   columns: [date, open, high, low, close, adj_close, volume]
-
+  start: 2010-01-01
+  end: null
+  default_provider: wrds
   # Failover order. get_prices(source=...) starts at your source and works
   # down this list, skipping anything already tried.
   provider_order: [ibkr, wrds, yfinance]
@@ -36,7 +38,7 @@ data:
       # true means Yahoo returns NO 'Adj Close' column and 'Close' is itself
       # the split+dividend adjusted series, so close == adj_close and the raw
       # close is unavailable. Set false to get both.
-      auto_adjust: true
+      auto_adjust: false
 
 # How many calendar days short of the requested end a series may stop before it
 # counts as a failure (covers weekends and holidays).
@@ -52,3 +54,55 @@ strategies:
   ROME:
     status: dev
     description: ETF pairs trading across commodity, rates, credit and FX proxies.
+
+    # Every null below is a TBD and MUST be pinned before the holdout is
+    # touched. Log every variant run with its config hash + variant ID.
+
+    # --- formation: which pairs are tradable. Refit monthly. ---------------
+    formation:
+      lookback_days: 252
+      refit: monthly
+      top_n: 5
+      halflife_min: 1          # days
+      halflife_max: 30         # days
+      coint_pvalue: 0.05
+      coint_trend: ct          # Engle-Granger constant + trend
+
+    # --- signal -----------------------------------------------------------
+    signal:
+      entry_z: 2.0
+      exit_z: 0.0
+      stop_z: 3.5
+      time_stop_mult: 3.0      # multiple of the pair's half-life
+      zscore_lookback: null    # TBD — pre-register before the holdout
+
+    # --- hedge ratio ------------------------------------------------------
+    hedge:
+      method: ols              # ols | kalman
+      kalman_delta: null       # TBD
+      kalman_obs_var: null     # TBD
+
+    # --- cointegration breakdown while a trade is open --------------------
+    breakdown:
+      action: force_close      # force_close | hold — toggle to compare
+      window: 126
+      pvalue: 0.10
+      consecutive_fails: 3     # k checks in a row before acting
+
+    # --- sizing -----------------------------------------------------------
+    sizing:
+      capital: 100000
+      risk_per_pair: 0.01      # fraction of capital, from SPREAD vol
+      min_notional_per_leg: 1000
+      max_pairs: 5
+
+    # --- execution --------------------------------------------------------
+    execution:
+      fill: next_open
+      mode: backtest           # backtest | paper | live
+
+    # --- walk-forward splits; holdout runs ONCE ---------------------------
+    splits:
+      train: [2012-01-01, 2019-12-31]
+      validate: [2020-01-01, 2022-12-31]
+      holdout: [2023-01-01, null]   # null = latest available

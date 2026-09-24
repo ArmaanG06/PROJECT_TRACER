@@ -26,6 +26,9 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from utils.utils import load_config
+
+configs = load_config()
 
 # Lets this run even if `pip install -e .` has not been done in the active
 # interpreter. Harmless when it has.
@@ -42,14 +45,12 @@ from data_pulling import (  # noqa: E402
     load_symbols,
 )
 
-PROGRAM = "ROME"
 
-
-def main() -> int:
+def main(PROGRAM) -> int:
     parser = argparse.ArgumentParser(description="Pull the ROME universe into ROME.duckdb.")
-    parser.add_argument("--source", default="ibkr", help="Preferred source (default: ibkr)")
-    parser.add_argument("--start", default="2010-01-01")
-    parser.add_argument("--end", default=None, help="Omit for latest available")
+    parser.add_argument("--source", default=configs["data"]["default_provider"], help="Preferred source (default: ibkr)")
+    parser.add_argument("--start", default=configs["data"]["start"], help="Start date")
+    parser.add_argument("--end", default=configs["data"]["end"], help="Omit for latest available")
     parser.add_argument("--refresh", action="store_true",
                         help="Ignore what is already stored and re-pull everything")
     parser.add_argument("--mode", default="per_symbol", choices=["strict", "per_symbol"])
@@ -93,4 +94,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main("ROME")

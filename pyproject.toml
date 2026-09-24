@@ -26,5 +26,8 @@ dependencies = [
 # leaves nothing behind.
 # `utils` is listed too because data_pulling imports utils.utils.load_config,
 # so it has to be importable wherever data_pulling is.
+#
+# programs/ROME imports as `ROME`, so runner.py can do
+# `from ROME.strategy import engine` from any directory.
 [tool.hatch.build.targets.wheel]
-packages = ["data/data_pulling", "utils"]
+packages = ["data/data_pulling", "utils", "programs/ROME"]
