@@ -50,9 +50,9 @@ class YfinanceProvider(Provider):
         try:
             frame = yf.Ticker(symbol).history(
                 start=start.strftime("%Y-%m-%d"),
-                end=(end + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),  # end is exclusive
+                end=(end + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
                 interval="1d",
-                auto_adjust=self.auto_adjust,  # explicit: see module docstring
+                auto_adjust=self.auto_adjust,
                 raise_errors=True,
             )
         except Exception as exc:

@@ -6,39 +6,33 @@
 
 paths:
   universes: data/store/universes
-  db: data/store          # holds <PROGRAM>.duckdb, one per program
+  db: data/store
 
-providers:
-  ibkr:
-    host: 127.0.0.1
-    port: 7497          # TWS paper. live 7496 | Gateway paper 4002 | live 4001
-    client_id: 11
-    timeout: 30
-    # TWS allows 60 historical requests per 10 min and no repeat for the same
-    # contract within 2s. Sleep this long between requests.
-    pace_seconds: 2.5
+data:
+  providers:
+    ibkr:
+      host: 127.0.0.1
+      port: 7497          # TWS paper. live 7496 | Gateway paper 4002 | live 4001
+      client_id: 11
+      timeout: 30
+      pace_seconds: 2.5
 
-  wrds:
-    username: null      # null -> read it from pgpass
-    daily_table: crsp.dsf_v2
-    info_table: crsp.stksecurityinfohist
+    wrds:
+      username: null      # null -> read it from pgpass
+      daily_table: crsp.dsf_v2
+      info_table: crsp.stksecurityinfohist
 
-  yfinance:
-    # Passed explicitly: yfinance's default flipped to true, which DROPS the
-    # Adj Close column and overwrites Close with the adjusted series.
-    auto_adjust: false
+    yfinance:
+      auto_adjust: true
 
-# How many calendar days short of the requested end a series may stop before
-# it counts as a failure (covers weekends and holidays).
-coverage_slack_days: 5
+    columns = ("date", "open", "high", "low", "close", "adj_close", "volume") 
+    provider_order = ("ibkr", "wrds", "yfinance")
+
+coverage_slack_days: 5 # How many calendar days short of the requested end a series may stop before it counts as a failure (covers weekends and holidays).
 
 logging:
   level: INFO
 
-# Registry of algos. One name per program: ROME means programs/ROME/,
-# data/store/universes/ROME_constituents.csv and data/store/ROME.duckdb.
-# Nothing here needs to restate that.
-# status: dev | paper | live | off
 strategies:
   ROME:
     status: dev
