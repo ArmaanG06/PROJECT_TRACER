@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from . import CoverageError, Provider, ProviderUnavailable, SymbolNotFound, setting
+from .data_errors import CoverageError, ProviderUnavailable, SymbolNotFound
+from .data_helper import Provider, setting
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +79,7 @@ class WrdsProvider(Provider):
     adjustment = "crsp_total_return_index"
 
     def __init__(self):
-        config = setting("providers.wrds", {}) or {}
+        config = setting("data.providers.wrds", {}) or {}
         self.username = (
             config.get("username")
             or os.environ.get("TRACER_WRDS_USERNAME")
@@ -103,10 +105,25 @@ class WrdsProvider(Provider):
                 "TRACER_WRDS_USERNAME in .env."
             )
 
+        # If its pgpass-based connection fails, the wrds package falls back to
+        # input() for the username and getpass() for the password (see
+        # Connection.connect). In an unattended run that HANGS rather than
+        # failing. Closing stdin makes input() raise EOFError immediately, which
+        # becomes a clear error instead of a stalled process.
+        real_stdin = sys.stdin
         try:
-            self._db = wrds_lib.Connection(wrds_username=self.username)
+            with open(os.devnull) as devnull:
+                sys.stdin = devnull
+                self._db = wrds_lib.Connection(wrds_username=self.username)
+        except EOFError as exc:
+            raise ProviderUnavailable(
+                f"WRDS rejected the stored credentials for {self.username}, then asked "
+                f"for them interactively. Check the password in {pgpass_path()}."
+            ) from exc
         except Exception as exc:
             raise ProviderUnavailable(f"cannot connect to WRDS: {exc}") from exc
+        finally:
+            sys.stdin = real_stdin
 
         logger.info("[data_pulling] wrds connected as %s", self.username)
         return self._db

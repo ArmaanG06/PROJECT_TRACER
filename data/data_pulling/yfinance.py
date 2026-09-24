@@ -16,7 +16,8 @@ import logging
 
 import pandas as pd
 
-from . import Provider, ProviderUnavailable, SymbolNotFound, setting
+from .data_errors import ProviderUnavailable, SymbolNotFound
+from .data_helper import Provider, setting
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class YfinanceProvider(Provider):
     adjustment = "yahoo_adj_close"
 
     def __init__(self):
-        config = setting("providers.yfinance", {}) or {}
+        config = setting("data.providers.yfinance", {}) or {}
         self.auto_adjust = bool(config.get("auto_adjust", False))
 
     def healthcheck(self) -> bool:

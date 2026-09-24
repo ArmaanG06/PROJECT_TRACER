@@ -1,12 +1,12 @@
 """Create or rebuild a program's DuckDB file.
 
-The .duckdb files are gitignored (too large), so this script plus
-data/schema.sql is what lets anyone recreate the database from scratch.
+The .duckdb files are gitignored (too large), so this script plus schema.sql
+beside it is what lets anyone recreate the database from scratch.
 
-    python data/build_db.py ROME                     # empty db, schema only
-    python data/build_db.py ROME --fill              # + pull the whole universe
-    python data/build_db.py ROME --fill --source wrds --start 2015-01-01 --end 2025-12-31
-    python data/build_db.py ROME --show              # what's in it
+    python data/one_time_scripts/build_db.py ROME            # empty db, schema only
+    python data/one_time_scripts/build_db.py ROME --fill     # + pull the whole universe
+    python data/one_time_scripts/build_db.py ROME --show     # what's in it
+    python data/one_time_scripts/build_db.py ROME --fill --source wrds         --start 2015-01-01 --end 2025-12-31
 
 Filling is just get_prices() over the universe, so it obeys the usual failover
 (ibkr -> wrds -> yfinance) and writes straight into the database.
@@ -18,7 +18,8 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent))  # so this runs uninstalled
+sys.path.append(str(Path(__file__).resolve().parents[1]))  # data/, so this runs uninstalled
+sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root, for utils/
 
 from data_pulling import (  # noqa: E402
     DataUnavailableError,
@@ -37,7 +38,7 @@ def build(program: str, *, fill: bool, source: str, start: str, end: str | None,
     path = db_path(program)
     existed = path.exists()
 
-    connect(program)  # creates the file and applies data/schema.sql
+    connect(program)  # creates the file and applies schema.sql beside this script
     print(f"{'Opened' if existed else 'Created'} {path}")
 
     if not fill:

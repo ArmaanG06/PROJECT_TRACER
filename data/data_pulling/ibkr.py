@@ -16,7 +16,8 @@ import time
 
 import pandas as pd
 
-from . import Provider, ProviderUnavailable, SymbolNotFound, setting
+from .data_errors import ProviderUnavailable, SymbolNotFound
+from .data_helper import Provider, setting
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class IbkrProvider(Provider):
     adjustment = "ib_adjusted_last"
 
     def __init__(self):
-        config = setting("providers.ibkr", {}) or {}
+        config = setting("data.providers.ibkr", {}) or {}
         self.host = str(config.get("host", "127.0.0.1"))
         self.port = int(config.get("port", 7497))
         self.client_id = int(config.get("client_id", 11))

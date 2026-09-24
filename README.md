@@ -5,17 +5,21 @@ data layer is shared. First algo: **ROME** — ETF pairs trading over a 42-name
 universe.
 
 ```
-config/settings.yaml          providers, paths, strategy registry
+configs.yaml                  the only config: providers, paths, algo registry
+utils/utils.py                load_config(), shared across the repo
 data/
   data_pulling/
-    __init__.py               the puller: get_prices, failover, store, universes
-    ibkr.py  wrds.py  yfinance.py     one file per source
-  schema.sql                  database schema (committed)
-  build_db.py                 create/rebuild a program database
+    __init__.py               the puller: get_prices() and to_wide()
+    data_helper.py            config, universes, Provider base, DuckDB store
+    data_errors.py            the typed exceptions failover keys off
+    ibkr.py  wrds.py  yfinance.py     one adapter per source
+  one_time_scripts/
+    schema.sql                database schema (committed)
+    build_db.py               create/rebuild any program database
+    ROME_data_collection.py   run once to fill ROME.duckdb
   store/
     universes/ROME_constituents.csv
     ROME.duckdb               one database per program (gitignored)
-programs/ROME/rome.py         strategy code goes here
 command_center/mockup.html    visual mockup — just open it in a browser
 ```
 
@@ -48,7 +52,7 @@ to delete, and regenerated on each install.
 WRDS credentials go in pgpass, never in the repo — on Windows
 `%APPDATA%\postgresql\pgpass.conf`, format
 `wrds-pgdata.wharton.upenn.edu:9737:wrds:<user>:<password>`. IBKR host/port are
-in `config/settings.yaml` (default `127.0.0.1:7497`, TWS paper).
+in `configs.yaml` (default `127.0.0.1:7497`, TWS paper).
 
 ## Use
 
@@ -94,16 +98,15 @@ stored; the data comes straight from the provider.
 The `.duckdb` files are **not committed** (too large). Two committed files let
 anyone recreate them:
 
-- `data/schema.sql` — the table definitions, applied automatically on first
+- `data/one_time_scripts/schema.sql` — the table definitions, applied automatically on first
   connect. The one place the shape of the data is written down.
-- `data/build_db.py` — creates and fills a database. It takes the program name
+- `data/one_time_scripts/build_db.py` — creates and fills a database. It takes the program name
   as an argument, so it serves every program, not just ROME.
 
 ```bash
-python data/build_db.py ROME --fill              # schema + pull the universe
-python data/build_db.py ROME --show              # what's in it
-python data/build_db.py OSLO --fill              # a future program, same script
-python data/build_db.py ROME --fill --source wrds --start 2015-01-01 --end 2025-12-31
+python data/one_time_scripts/ROME_data_collection.py       # fill ROME.duckdb
+python data/one_time_scripts/build_db.py ROME --show       # what's in it
+python data/one_time_scripts/build_db.py OSLO --fill       # a future program
 ```
 
 `meta`'s primary key is `symbol` **alone**, deliberately — a symbol physically
@@ -125,7 +128,7 @@ want to open the database elsewhere.
 Everything for an algo goes in its own folder. Start from
 [programs/ROME/rome.py](programs/ROME/rome.py) and add files beside it
 (`pairs.py`, `signals.py`, `backtest.py`). Nothing outside that folder needs to
-change. Register it in the `strategies:` block of `config/settings.yaml`.
+change. Register it in the `strategies:` block of `configs.yaml`.
 
 ## Command center
 

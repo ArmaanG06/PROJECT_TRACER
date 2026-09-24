@@ -7,10 +7,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Literal
 from utils.utils import load_config
-from data_errors import TracerDataError, ProviderUnavailable, SymbolNotFound, CoverageError
+# Relative import: data_errors.py is a sibling INSIDE this package, so a plain
+# `from data_errors import ...` only resolves if data/data_pulling/ happens to
+# be on sys.path. The leading dot makes it work however the package is imported.
+from .data_errors import TracerDataError, ProviderUnavailable, SymbolNotFound, CoverageError
 
 import pandas as pd
-import yaml
 
 logger = logging.getLogger(__name__)
 logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -19,10 +21,10 @@ __version__ = "0.1.0"
 
 #: Canonical frame columns every provider returns.
 configs = load_config()
-COLUMNS = configs['data']['columns'] 
+COLUMNS = tuple(configs['data']['columns'])
 
 #: Failover order. get_prices(source=...) starts here and works down the list.
-PROVIDER_ORDER = configs['data']['provider_order'] 
+PROVIDER_ORDER = tuple(configs['data']['provider_order'])
 
 # ======================================================================
 # Settings
@@ -38,19 +40,12 @@ def project_root() -> Path:
     return here.parents[2]
 
 ## SETTINGS CAN BE IMPORTED AT THE TOP OF THE FILE ONCE, OUTSIDE ANY FUNCTION
-@lru_cache(maxsize=1)
-def settings() -> dict[str, Any]:
-    """Load config/settings.yaml once per process."""
-    path = project_root() / "config" / "settings.yaml"
-    if not path.exists():
-        logger.warning("[data_pulling] no config at %s; using defaults", path)
-        return {}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+## ^^ done: `configs` is loaded once at the top of this file via load_config().
 
 ## HELPER FUNC, COULD MAKE A NEW FILE
 def setting(dotted: str, default: Any = None) -> Any:
-    """Fetch a setting by dotted path, e.g. ``providers.ibkr.port``."""
-    node: Any = settings()
+    """Fetch a setting by dotted path, e.g. ``data.providers.ibkr.port``."""
+    node: Any = configs
     for key in dotted.split("."):
         if not isinstance(node, dict) or key not in node:
             return default
@@ -58,11 +53,15 @@ def setting(dotted: str, default: Any = None) -> Any:
     return node
 
 ## HELPER ^^
-def store_path(name: str) -> Path:
-    """A configured path under data/store/, resolved against the repo root."""
-    raw = setting(f"paths.{name}", f"data/store/{name}")
-    candidate = Path(raw)
-    return candidate if candidate.is_absolute() else project_root() / candidate
+def db_dir() -> Path:
+    """Directory holding <PROGRAM>.duckdb. From configs.yaml data.DB_path,
+    already made absolute by load_config()."""
+    return Path(configs["data"]["DB_path"])
+
+
+def universes_dir() -> Path:
+    """Directory holding <NAME>_constituents.csv, from data.constituents."""
+    return Path(configs["data"]["constituents"])
 
 ## SOMETHING LIKE THIS WITH THE OTHER HELPERS, CONFIG_LOADER OR SMTH
 def configure_logging(level: str | int | None = None) -> None:
@@ -94,7 +93,7 @@ def load_universe(name: str) -> pd.DataFrame:
 
     Returns a frame of symbol / group / description, de-duplicated and sorted.
     """
-    path = store_path("universes") / f"{name.upper()}_constituents.csv"
+    path = universes_dir() / f"{name.upper()}_constituents.csv"
     if not path.exists():
         raise FileNotFoundError(f"No universe file for {name!r} at {path}")
 
@@ -252,8 +251,9 @@ def failover_chain(source: str) -> list[str]:
 # ======================================================================
 # DuckDB store: one database per program, data/store/<PROGRAM>.duckdb
 #
-# Schema lives in data/schema.sql. The .duckdb files are gitignored; rebuild
-# one with `python data/build_db.py ROME --fill`.
+# Schema lives in data/one_time_scripts/schema.sql. The .duckdb files are
+# gitignored; rebuild one with:
+#     python data/one_time_scripts/build_db.py ROME --fill
 #
 # meta's primary key is symbol alone, so a symbol physically cannot hold two
 # sources at once -- the no-mixing rule is enforced by the database, not by
@@ -261,17 +261,22 @@ def failover_chain(source: str) -> list[str]:
 # ======================================================================
 _PRICE_COLUMNS = "symbol, date, open, high, low, close, adj_close, volume, source"
 
+#: The schema is applied on every connect(). It uses CREATE TABLE IF NOT EXISTS,
+#: so it creates but never MIGRATES -- change a column and you must delete the
+#: .duckdb file and rebuild.
+SCHEMA_PATH = project_root() / "data" / "one_time_scripts" / "schema.sql"
+
 
 def db_path(db: str) -> Path:
     """Path to a program's database file, e.g. db_path("ROME")."""
-    return store_path("db") / f"{db.upper()}.duckdb"
+    return db_dir() / f"{db.upper()}.duckdb"
 
 
 _CONNECTIONS: dict[str, Any] = {}
 
 
 def connect(db: str):
-    """Open the program database, creating it from data/schema.sql if needed.
+    """Open the program database, creating it from schema.sql if needed.
 
     Connections are reused: opening a DuckDB file costs ~13ms while the queries
     themselves take under 1ms, so open-per-call would dominate the runtime.
@@ -291,7 +296,7 @@ def connect(db: str):
 
     path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(key)
-    con.execute((project_root() / "data" / "schema.sql").read_text(encoding="utf-8"))
+    con.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
     _CONNECTIONS[key] = con
     return con
 

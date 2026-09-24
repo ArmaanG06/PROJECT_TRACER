@@ -17,12 +17,14 @@ dependencies = [
 
 # This is the only reason this file exists: it maps the import name
 # `data_pulling` onto data/data_pulling/, so `pip install -e .` makes
-# `from data_pulling import get_prices` work from programs/ROME/ and anywhere
-# else. Note this registers the package in the VENV ONLY -- programs/ROME/
-# rome.py also appends data/ to sys.path so it works under any interpreter.
+# `from data_pulling import get_prices` work from any directory. Note this
+# registers the packages in the VENV ONLY, so scripts under
+# data/one_time_scripts/ also append to sys.path to run under any interpreter.
 #
 # hatchling, not setuptools: setuptools writes a project_tracer.egg-info/
 # folder into the repo on every install. hatchling builds in a temp dir and
 # leaves nothing behind.
+# `utils` is listed too because data_pulling imports utils.utils.load_config,
+# so it has to be importable wherever data_pulling is.
 [tool.hatch.build.targets.wheel]
-packages = ["data/data_pulling"]
+packages = ["data/data_pulling", "utils"]

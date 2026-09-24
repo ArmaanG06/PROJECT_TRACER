@@ -4,14 +4,20 @@ Everything except the per-source adapters lives here: settings, errors, the
 Provider base class, the universe loader, the DuckDB store, and get_prices().
 One file per source sits alongside: ibkr.py, wrds.py, yfinance.py.
 
+Split across this package:
+    data_errors.py   the typed exceptions the failover logic keys off
+    data_helper.py   config, universes, Provider base, the DuckDB store
+    ibkr.py / wrds.py / yfinance.py   one adapter per source
+    __init__.py      the puller itself: get_prices() and to_wide()
+
 Prices live in one DuckDB file per program (data/store/ROME.duckdb), schema in
-data/schema.sql. The files are gitignored; rebuild with data/build_db.py.
+data/one_time_scripts/schema.sql. The .duckdb files are gitignored; rebuild with
+data/one_time_scripts/build_db.py.
 
     from data_pulling import get_prices, to_wide, load_universe
 
-That works from any directory, including programs/ROME/, because pyproject.toml
-maps the name `data_pulling` onto data/data_pulling/ and the package is
-installed editable.
+That works from any directory because pyproject.toml maps the name
+`data_pulling` onto data/data_pulling/ and the package is installed editable.
 
 THE NO-MIXING RULE: a symbol's series always comes from exactly one source.
 Ranges are never spliced across vendors -- if IB covers 2010-2020 and Yahoo
@@ -29,12 +35,35 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Literal
 from utils.utils import load_config
-from data_errors import TracerDataError, ProviderUnavailable, SymbolNotFound, CoverageError, DataUnavailableError
-from data_helper import cache_load, cache_save, get_provider, failover_chain, to_timestamp
-
+# Leading dots: these are siblings inside this package. Without them the import
+# only resolves when data/data_pulling/ is itself on sys.path.
+from .data_errors import (
+    CoverageError,
+    DataUnavailableError,
+    ProviderUnavailable,
+    SymbolNotFound,
+    TracerDataError,
+)
+from .data_helper import (
+    Provider,
+    cache_load,
+    cache_save,
+    cache_status,
+    close_db,
+    configure_logging,
+    connect,
+    db_path,
+    failover_chain,
+    get_provider,
+    load_symbols,
+    load_universe,
+    project_root,
+    reset_providers,
+    setting,
+    to_timestamp,
+)
 
 import pandas as pd
-import yaml
 
 logger = logging.getLogger(__name__)
 logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -43,10 +72,10 @@ __version__ = "0.1.0"
 
 #: Canonical frame columns every provider returns.
 configs = load_config()
-COLUMNS = configs['data']['columns'] 
+COLUMNS = tuple(configs['data']['columns'])
 
 #: Failover order. get_prices(source=...) starts here and works down the list.
-PROVIDER_ORDER = configs['data']['provider_order'] 
+PROVIDER_ORDER = tuple(configs['data']['provider_order'])
 
 # ======================================================================
 # The puller
