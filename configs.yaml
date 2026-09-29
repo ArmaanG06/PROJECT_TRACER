@@ -13,13 +13,11 @@ data:
   start: 2010-01-01
   end: null
   default_provider: wrds
-  # Failover order. get_prices(source=...) starts at your source and works
-  # down this list, skipping anything already tried.
   provider_order: [ibkr, wrds, yfinance]
 
-  # Paths, relative to the repo root; load_config() resolves them.
-  DB_path: data/store              # holds <PROGRAM>.duckdb, one per program
+  DB_path: data/store
   constituents: data/store/universes
+  trade_log: data/store/trade_log
 
   providers:
     ibkr:
@@ -35,9 +33,6 @@ data:
       info_table: crsp.stksecurityinfohist
 
     yfinance:
-      # true means Yahoo returns NO 'Adj Close' column and 'Close' is itself
-      # the split+dividend adjusted series, so close == adj_close and the raw
-      # close is unavailable. Set false to get both.
       auto_adjust: false
 
 # How many calendar days short of the requested end a series may stop before it
@@ -47,9 +42,7 @@ coverage_slack_days: 5
 logging:
   level: INFO
 
-# Registry of algos. One name per program: ROME means ROME_constituents.csv
-# and data/store/ROME.duckdb.
-# status: dev | paper | live | off
+
 strategies:
   ROME:
     status: dev
@@ -106,3 +99,8 @@ strategies:
       train: [2012-01-01, 2019-12-31]
       validate: [2020-01-01, 2022-12-31]
       holdout: [2023-01-01, null]   # null = latest available
+
+split_control_panel:
+  train: True
+  validate: False
+  holdout: False 
