@@ -4,8 +4,6 @@
 #   Linux    ~/.pgpass  (chmod 600)
 #   Format   wrds-pgdata.wharton.upenn.edu:9737:wrds:<user>:<password>
 #
-# Loaded by utils.utils.load_config(), which makes DB_path and constituents
-# absolute. This is the only config file.
 
 data:
   # Canonical frame columns every provider returns, in order.
@@ -53,13 +51,20 @@ strategies:
 
     # --- formation: which pairs are tradable. Refit monthly. ---------------
     formation:
-      lookback_days: 252
+      pairs_file: data/store/universes/ROME_pairs.csv
+      lookback_months: 12      # window for beta, alpha, half-life, sigma (data <= t only)
+      test_window_months: 12   # window for the cointegration test; can go longer than lookback later
       refit: monthly
       top_n: 5
-      halflife_min: 1          # days
-      halflife_max: 30         # days
+      halflife_min: 1          # trading days
+      halflife_max: 30         # trading days
       coint_pvalue: 0.05
       coint_trend: ct          # Engle-Granger constant + trend
+      coint_direction: a_on_b  # symbol_a is the dependent leg, as ordered in pairs_file
+      allow_negative_beta: false  # beta <= 0 = long both / short both = directional, not a hedge
+      min_coverage: 0.95       # share of the window's trading days each leg must have
+      rank_by: half_life       # half_life | pvalue — which tradable pairs make top_n
+      multiple_testing: none   # deferred; ~4 of 72 pairs can pass by chance each refit
 
     # --- signal -----------------------------------------------------------
     signal:
@@ -84,23 +89,24 @@ strategies:
 
     # --- sizing -----------------------------------------------------------
     sizing:
-      capital: 100000
+      capital: 10000           # C$
       risk_per_pair: 0.01      # fraction of capital, from SPREAD vol
       min_notional_per_leg: 1000
-      max_pairs: 5
+      # max_pairs is derived, not set: capital // (2 * min_notional_per_leg)
 
     # --- execution --------------------------------------------------------
     execution:
       fill: next_open
-      mode: backtest           # backtest | paper | live
 
     # --- walk-forward splits; holdout runs ONCE ---------------------------
     splits:
       train: [2012-01-01, 2019-12-31]
       validate: [2020-01-01, 2022-12-31]
-      holdout: [2023-01-01, null]   # null = latest available
+      holdout: [2023-01-01, 2026-09-29]
 
-split_control_panel:
-  train: True
-  validate: False
-  holdout: False 
+# Run controls. Kept OUTSIDE strategies.ROME so they don't change the variant hash
+# (a backtest and a paper run of the same variant must share one ID).
+run:
+  mode: backtest               # backtest | paper | live
+  split: train                 # train | validate | holdout (one per run)
+  holdout_unlocked: false      # must be true AND no prior holdout run in the trade log

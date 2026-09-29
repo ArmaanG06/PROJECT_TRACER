@@ -1,9 +1,73 @@
-"""Candidate pair list — the universe of pairs ROME is allowed to consider.
-
-- Loads my hand-picked candidate pairs, each with a written economic rationale.
-- NEVER brute-force combinations. Data-mined pairs do not survive out of sample.
-- Records the candidate count. That number is the multiple-testing denominator
-  for every p-value reported downstream.
-- Output: list of (symbol_a, symbol_b, rationale).
-- Symbols must exist in ROME_constituents.csv; fail loudly if one does not.
-"""
+symbol_a,symbol_b,rationale
+GLD,SLV,Precious metals co-move; gold/silver ratio has historically oscillated in a range
+GLD,GDX,Miners are levered to gold; miner/bullion ratio swings on operating leverage then reverts
+GLD,GDXJ,Junior miners are levered to gold with more beta and cost sensitivity
+SLV,SIL,Silver miners are levered to spot silver
+SLV,GDX,Precious metals complex; miners track silver via gold correlation
+GDX,GDXJ,Same underlying gold exposure; spread is size and cost-structure tilt with heavy holdings overlap
+GDX,SIL,Precious miners share drivers (metal price; energy and labor costs; equity beta)
+GDXJ,SIL,Mid-tier miners with overlapping names; many juniors carry silver by-product exposure
+GLD,TIP,Both driven by real yields and inflation expectations
+GLD,TLT,Both rally on falling real rates and flight to quality
+GLD,UUP,Gold priced in USD; inverse dollar relationship
+GLD,FXF,Safe-haven assets that bid in risk-off
+GLD,FXY,Safe-haven assets that bid in risk-off
+GDX,EWC,Canada is heavy in gold and precious-metals miners and streamers
+GDX,EWA,Australia has large gold miner and materials weighting
+XLE,XOP,Large-cap integrated vs equal-weight E&P; same oil beta with a different size mix
+XLE,OIH,Upstream capex links producers and service companies
+XOP,OIH,E&P activity drives service demand
+XLE,USO,Energy equities price off crude; spread reflects equity multiple and roll yield
+XOP,USO,E&P earnings most directly levered to WTI
+OIH,USO,Service demand follows oil price with a lag
+XOP,UNG,XOP holds gas-weighted E&Ps; exposure to Henry Hub
+USO,UNG,Loose energy link via oil/gas substitution and associated gas; ratio is historically very unstable
+EWC,XLE,Canada index heavy in energy
+EWC,USO,Canadian equities and WCS/WTI linkage through energy weight
+FXC,USO,CAD is a petrocurrency
+EWC,FXC,EWC is USD-translated so CAD moves feed directly into returns
+EWA,FXA,EWA is USD-translated so AUD moves feed directly into returns
+EWJ,FXY,EWJ is USD-translated; yen weakness tends to lift Nikkei in local terms (inverse or hedge-ratio relationship)
+EWA,EWC,Commodity-heavy developed markets with large bank and resource weights; classic textbook pair
+FXA,FXC,Commodity currencies driven by terms of trade and global growth
+FXE,FXF,EUR/CHF with a history of SNB management; strong European linkage
+FXE,FXB,European currencies with correlated macro and a range-bound EUR/GBP cross
+FXE,UUP,EUR is ~58% of DXY (inverse relationship)
+FXB,UUP,GBP is a meaningful DXY component (inverse relationship)
+FXY,FXF,Funding and safe-haven currencies
+FXA,FXY,AUD/JPY cross as a risk-on/risk-off carry proxy
+FXI,EWH,Hong Kong listings; shared China and HK market liquidity
+EWA,FXI,Australia exports iron ore and coal to China; China demand links the two
+EWZ,EMB,Brazil equities and EM sovereign USD debt share EM risk appetite and dollar funding
+SHY,IEF,Adjacent points on the Treasury curve; 2s10s-style spread
+IEF,TLT,Adjacent points on the Treasury curve; 10s30s-style spread
+SHY,TLT,Curve slope proxy; slow-moving and regime-dependent
+TIP,IEF,Duration-similar; spread approximates 10y breakeven inflation
+TIP,TLT,Real vs nominal duration exposure
+LQD,IEF,Duration-similar; spread approximates IG credit spread
+LQD,TLT,IG corporate duration vs long Treasuries
+HYG,JNK,Near-identical HY index exposure; tracking and flow-driven dislocations
+HYG,LQD,HY vs IG credit quality spread
+JNK,LQD,HY vs IG credit quality spread
+EMB,LQD,USD EM sovereign vs US IG; similar duration and credit beta
+EMB,HYG,Risky USD credit with shared spread beta
+HYG,SPY,HY credit and equity driven by the same risk premium
+HYG,IWM,Small caps are leveraged and credit-sensitive like HY issuers
+XLF,KRE,Banks share rate and credit drivers; KRE is the higher-beta regional version
+KRE,IWM,Regional banks are a large small-cap weight
+XLF,SPY,Sector vs market
+XLK,QQQ,Heavy overlap in mega-cap tech
+XLK,SPY,Tech is the largest SPY weight
+QQQ,SPY,Large overlap in top holdings
+SPY,IWM,Large vs small cap; same US equity beta
+IWM,QQQ,US equity beta with a size and growth tilt
+XLY,QQQ,AMZN and TSLA are heavy in both
+XLY,XLP,Cyclical vs defensive consumer; ratio cycles with growth expectations
+XLU,XLP,Defensive low-beta sectors
+XLV,XLP,Defensive low-beta sectors
+XLV,SPY,Sector vs market
+XLI,SPY,Sector vs market
+XLI,XLY,Cyclical sectors driven by growth
+XLI,IWM,Domestic cyclicals; small caps are industrial-heavy
+XLU,TLT,Utilities trade as a bond proxy on rates
+XLP,TLT,Staples are a weaker bond proxy
