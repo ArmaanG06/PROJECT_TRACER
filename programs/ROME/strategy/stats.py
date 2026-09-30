@@ -55,14 +55,15 @@ def hedge_ratio(log_a: pd.Series, log_b: pd.Series, trend: str = "ct") -> HedgeF
     )
 
 
-def cointegration(log_a: pd.Series, log_b: pd.Series, trend: str = "ct") -> CointResult:
+def cointegration(log_a: pd.Series, log_b: pd.Series, trend: str = "ct",
+                  autolag: str = "aic") -> CointResult:
     """Engle-Granger test on the OLS residuals, MacKinnon p-values.
 
     Never pass Kalman residuals here: the filter absorbs the non-stationarity and
     everything looks cointegrated.
     """
     a, b = _align(log_a, log_b)
-    tstat, pvalue, crit = coint(a, b, trend=trend, autolag="aic")
+    tstat, pvalue, crit = coint(a, b, trend=trend, autolag=autolag)
     return CointResult(
         tstat=float(tstat),
         pvalue=float(pvalue),

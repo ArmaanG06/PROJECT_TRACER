@@ -69,7 +69,8 @@ def _test_pair(prices, t, a, b, cfg) -> PairSpec:
 
     # 3. hedge ratio, cointegration, half-life, sigma
     fit = hedge_ratio(fit_win[a], fit_win[b], trend=cfg["coint_trend"])
-    pvalue = cointegration(test_win[a], test_win[b], trend=cfg["coint_trend"]).pvalue
+    pvalue = cointegration(test_win[a], test_win[b], trend=cfg["coint_trend"],
+                           autolag=cfg["coint_autolag"]).pvalue
     hl = half_life(fit.resid)
     sigma = float(fit.resid.std())
     stats = dict(beta=fit.beta, alpha=fit.alpha, trend=fit.trend, hl=hl, sigma=sigma, pvalue=pvalue)
@@ -90,7 +91,7 @@ def _test_pair(prices, t, a, b, cfg) -> PairSpec:
 
 def _passes_cost_hurdle(sigma: float, cfg: dict) -> bool:
     # PLACEHOLDER: always passes until costs.py exists.
-    # Rule to implement: entry_z * sigma > 3 * round-trip cost across both legs.
+    # Rule to implement: entry_z * sigma > cfg["cost_hurdle_mult"] * round-trip cost across both legs.
     return True
 
 

@@ -45,6 +45,7 @@ strategies:
   ROME:
     status: dev
     description: ETF pairs trading across commodity, rates, credit and FX proxies.
+    db: data/store/ROME.duckdb 
 
     # Every null below is a TBD and MUST be pinned before the holdout is
     # touched. Log every variant run with its config hash + variant ID.
@@ -58,8 +59,10 @@ strategies:
       top_n: 5
       halflife_min: 1          # trading days
       halflife_max: 30         # trading days
+      cost_hurdle_mult: 3.0    # entry_z x sigma must beat this many round-trip costs (not active until costs.py)
       coint_pvalue: 0.05
       coint_trend: ct          # Engle-Granger constant + trend
+      coint_autolag: aic       # how the Engle-Granger test picks its lag count: aic | bic | t-stat
       coint_direction: a_on_b  # symbol_a is the dependent leg, as ordered in pairs_file
       allow_negative_beta: false  # beta <= 0 = long both / short both = directional, not a hedge
       min_coverage: 0.95       # share of the window's trading days each leg must have
@@ -110,3 +113,8 @@ run:
   mode: backtest               # backtest | paper | live
   split: train                 # train | validate | holdout (one per run)
   holdout_unlocked: false      # must be true AND no prior holdout run in the trade log
+
+# Research scripts (programs/ROME/research/). Outside strategies.ROME so they don't change the hash.
+research:
+  output_dir: programs/ROME/research/output
+  scan_split: train            # formation_scan runs on this split only (research on train, never holdout)
