@@ -1,5 +1,10 @@
+"""Shared helpers used across the repo."""
+import hashlib
+import json
 from pathlib import Path
+
 import yaml
+
 
 def get_project_root() -> Path:
     # walks up from this file until it finds pyproject.toml
@@ -9,6 +14,7 @@ def get_project_root() -> Path:
             return parent
     raise FileNotFoundError("pyproject.toml not found — project root undetermined")
 
+
 def load_config():
     root = get_project_root()
     with open(root / "configs.yaml") as f:
@@ -16,3 +22,9 @@ def load_config():
     cfg['data']['DB_path'] = str(root / cfg['data']['DB_path'])
     cfg['data']['constituents'] = str(root / cfg['data']['constituents']) + "/"
     return cfg
+
+
+def hash_config(config: dict) -> str:
+    text = json.dumps(config, sort_keys=True, default=str)
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return digest[:12]

@@ -34,7 +34,7 @@ from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Literal
-from utils.utils import load_config
+from utils import load_config
 # Leading dots: these are siblings inside this package. Without them the import
 # only resolves when data/data_pulling/ is itself on sys.path.
 from .data_errors import (

@@ -26,14 +26,14 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from utils.utils import load_config
+from utils import load_config
 
 configs = load_config()
 
 # Lets this run even if `pip install -e .` has not been done in the active
 # interpreter. Harmless when it has.
 sys.path.append(str(Path(__file__).resolve().parents[1]))  # data/
-sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root, for utils/
+sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root, for utils.py
 
 from data_pulling import (  # noqa: E402
     DataUnavailableError,

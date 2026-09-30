@@ -5,7 +5,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from utils.utils import get_project_root, load_config
+from utils import get_project_root, load_config
 from ROME.strategy.formation import form_pairs
 
 def load_prices(db_file: Path) -> pd.DataFrame:

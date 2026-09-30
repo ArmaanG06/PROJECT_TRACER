@@ -6,7 +6,7 @@ from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Literal
-from utils.utils import load_config
+from utils import load_config
 # Relative import: data_errors.py is a sibling INSIDE this package, so a plain
 # `from data_errors import ...` only resolves if data/data_pulling/ happens to
 # be on sys.path. The leading dot makes it work however the package is imported.

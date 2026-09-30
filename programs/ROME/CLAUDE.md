@@ -26,7 +26,7 @@
   Sources: IBKR (primary), WRDS/CRSP, yfinance, with automatic failover. Data is stored in
   ROME.duckdb. Backtests read frozen snapshots.
 - `programs/ROME/strategy/` and `programs/ROME/execution/`: being built now.
-- `configs.yaml` (central, read by `utils.utils.load_config`) has one section per program.
+- `configs.yaml` (central, read by `utils.load_config`; utils.py sits at the repo root, also holds hash_config) has one section per program.
   ROME settings live under `strategies.ROME`. Each run logs a hash of that section only (the variant ID).
 - Run controls (`mode`, `split`, `holdout_unlocked`) live in the top-level `run:` block, outside
   the hash, so a backtest and a paper run of the same variant share one ID.
@@ -34,21 +34,21 @@
 ## Architecture
 configs.yaml + ROME.duckdb + ROME_pairs.csv → runner.py
 runner → formation.py (monthly) ↔ state_mgmt.py
-runner.step (daily) → spread → zscore → breakdown → signals → sizing → target positions
+runner daily loop → decide_targets: spread → zscore → breakdown → signals → sizing → target positions
 runner → trades.py (targets − holdings = orders)
 trades → sim_broker.py (+ portfolio.py) OR ibkr_broker.py
 both brokers → ROME_tradelog.duckdb → report.py, and → state_mgmt.rebuild_from_log()
 
 Principles:
 - The RUNNER is the only place pipeline stages are wired together. No stage file imports another
-  stage (spread doesn't import formation, signals doesn't import zscore, ...). runner.step() plays the
+  stage (spread doesn't import formation, signals doesn't import zscore, ...). runner.decide_targets() plays the
   role of the engine, so there is no engine.py. Exception: stats.py is a shared toolbox, not a stage;
   formation and breakdown may import it.
 - configs.yaml is the control centre: every tunable number, path and switch comes from it. No
   hard-coded parameters in code (only defaults on pure functions, overridden by config at the call).
 - One code path for backtest and live. The broker is the only mode switch.
 - Walk-forward is built in: formation is called inside the runner loop. No separate backtest harness.
-- runner.step outputs TARGET POSITIONS, not buy/sell signals. trades.py diffs against holdings, so
+- decide_targets outputs TARGET POSITIONS, not buy/sell signals. trades.py diffs against holdings, so
   it's idempotent (sending the same targets twice places zero orders).
 - Holdings come from the broker: portfolio.get_portfolio() (sim) or ibkr_broker.get_portfolio() (live).
 - state_mgmt = strategy memory ONLY: pair ID, direction, frozen entry β, entry date, entry
@@ -57,10 +57,11 @@ Principles:
 - Live: reconcile(state vs IBKR positions) before each day. On a mismatch, halt and alert.
 - Live runs once per day after the close (scheduler), then exits. Not a forever loop.
 - Every stage sees data ≤ t only. The runner enforces this.
-- Daily order in runner.step(t): fills from today's open → log → rebuild state → reconcile
+- Daily loop in runner.run (no step function; loop body is inline, blocks A–D): fills from today's open → log → rebuild state → reconcile
   (sim too) → refit if refit day → per pair: spread → zscore → breakdown → signals → sizing
   (targets + strategy memory) → orders for the next open.
-- Mode is used in exactly two places: make_broker (how orders fill) and make_calendar (which dates run).
+- Mode is used in exactly three places, all in run() setup: make_broker (how orders fill), make_calendar
+  (which dates run) and pull_today_prices (paper/live only). The daily loop never checks mode.
 - Human gate (paper/live): orders are staged after the close, and I approve or veto them before the
   open. Vetoes are logged. The backtest assumes every order is approved; the veto log measures that gap.
 - Formation specs are NOT persisted. Live re-forms as of the last refit day each run (deterministic).
@@ -68,7 +69,7 @@ Principles:
 ## Files and key functions
 | File | Functions | Notes |
 |---|---|---|
-| runner.py | run(mode), step(t), make_calendar, is_refit_day(t), last_refit_day(t), hash_config, pairs_to_manage, hedge_for | Modes: backtest, paper, live. Imports formation + spread so far; the rest are commented stubs |
+| runner.py | run(mode), decide_targets, make_calendar, is_refit_day(t), last_refit_day(t), pairs_to_manage, hedge_for | Modes: backtest, paper, live. Imports formation + spread so far; the rest are commented stubs |
 | (data wrapper, TBD home) | open_prices | Working version exists: research/formation_scan.load_prices → move it here |
 | research/formation_scan.py | load_prices, refit_dates, scan, summarise (BUILT) | Kill/continue scan. Split + output dir from config `research:` |
 | strategy/formation.py | form_pairs(prices, t, pairs, cfg) → PairSpec list (BUILT) | Returns ALL pairs with status + reason; top_n marked `selected`. Cost hurdle is a placeholder until costs.py |
@@ -187,7 +188,7 @@ Principles:
 ## Live readiness (spec only, DO NOT BUILD until the paper-trading stage)
 The runner alone doesn't trade: with every helper built and live mode on, it stages one day of
 orders and exits. These are needed before paper/live. Rules marked TBD are decided later.
-- Daily data refresh: pull today's close into ROME.duckdb before step() runs. Backtests keep
+- Daily data refresh: pull today's close into ROME.duckdb before prices are loaded (placeholder: pull_today_prices in run setup). Backtests keep
   reading frozen snapshots.
 - Scheduler: an OS scheduler (e.g. Windows Task Scheduler) launches run("live") after each close.
   Kept outside the runner.
@@ -214,7 +215,7 @@ orders and exits. These are needed before paper/live. Rules marked TBD are decid
 - [x] Re-pull the short-history symbols for 2010–now
 - [x] Full formation run on 2012–19, all 72 pairs (kill/continue gate) → CONTINUE
 - [ ] spread.py (skeleton in place, I'm coding it)
-- [ ] zscore (solve drift-lag bias first) → breakdown → signals → sizing → wire into runner.step (look-ahead test)
+- [ ] zscore (solve drift-lag bias first) → breakdown → signals → sizing → wire into runner.decide_targets (look-ahead test)
 - [ ] costs + portfolio + sim_broker → trades → full backtest → report
 - [ ] kalman → compare OLS vs Kalman
 - [ ] state_mgmt + ibkr_broker + everything under "Live readiness" → paper trading + parity test

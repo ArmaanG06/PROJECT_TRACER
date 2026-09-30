@@ -6,7 +6,7 @@ universe.
 
 ```
 configs.yaml                  the only config: providers, paths, algo registry
-utils/utils.py                load_config(), shared across the repo
+utils.py                      load_config(), hash_config(), shared across the repo
 data/
   data_pulling/
     __init__.py               the puller: get_prices() and to_wide()

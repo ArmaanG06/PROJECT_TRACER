@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))  # data/, so this runs uninstalled
-sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root, for utils/
+sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root, for utils.py
 
 from data_pulling import (  # noqa: E402
     DataUnavailableError,

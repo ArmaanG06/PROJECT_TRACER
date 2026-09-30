@@ -25,10 +25,16 @@ dependencies = [
 # hatchling, not setuptools: setuptools writes a project_tracer.egg-info/
 # folder into the repo on every install. hatchling builds in a temp dir and
 # leaves nothing behind.
-# `utils` is listed too because data_pulling imports utils.utils.load_config,
-# so it has to be importable wherever data_pulling is.
+# utils.py is a single file at the repo root. data_pulling imports
+# `from utils import load_config`, so it has to be importable wherever data_pulling is:
+# force-include puts it in the wheel, and dev-mode-dirs keeps the repo root on the
+# path for the editable install.
 #
 # programs/ROME imports as `ROME`, so runner.py can do
-# `from ROME.strategy import engine` from any directory.
+# `from ROME.strategy.formation import form_pairs` from any directory.
 [tool.hatch.build.targets.wheel]
-packages = ["data/data_pulling", "utils", "programs/ROME"]
+packages = ["data/data_pulling", "programs/ROME"]
+dev-mode-dirs = [".", "data", "programs"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"utils.py" = "utils.py"
