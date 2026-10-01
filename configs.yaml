@@ -97,6 +97,16 @@ strategies:
       min_notional_per_leg: 1000
       # max_pairs is derived, not set: capital // (2 * min_notional_per_leg)
 
+    # --- costs (read by strategy/costs.py) ---------------------------------
+    # ESTIMATES, NOT VERIFIED: check against your IBKR account's actual pricing plan.
+    costs:
+      commission_per_share: 0.005  # USD per share, each order (IBKR "Fixed" plan for US stocks/ETFs)
+      min_commission: 1.00         # USD minimum per order
+      max_commission_pct: 0.01     # commission capped at 1% of the trade's value
+      half_spread_bps: 2.0         # half the bid-ask spread, per fill. Liquid ETFs ~0.5-2; thin ones (FXF, FXB) wider
+      borrow_fee_annual: 0.005     # short-leg borrow, 0.5% a year (easy-to-borrow ETFs)
+      fx_bps: 0.0                  # 0 = USD is held in the account; set > 0 if every trade converts CAD<->USD
+
     # --- execution --------------------------------------------------------
     execution:
       fill: next_open

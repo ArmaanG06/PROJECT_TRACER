@@ -4,25 +4,12 @@ Every function is pure: it sees only the window it is given, so look-ahead is th
 caller's job (the runner hands in data <= t). Inputs are LOG total-return-adjusted
 prices as pandas Series on a shared date index.
 """
-from typing import NamedTuple
-
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from statsmodels.tsa.stattools import coint
 
-
-class HedgeFit(NamedTuple):
-    beta: float          # units of log(b) per unit of log(a)
-    alpha: float         # intercept
-    trend: float         # slope per observation (0.0 when trend="c")
-    resid: pd.Series     # detrended residual: log_a - alpha - trend*t - beta*log_b
-
-
-class CointResult(NamedTuple):
-    tstat: float
-    pvalue: float        # MacKinnon
-    crit: dict           # {"1%": .., "5%": .., "10%": ..}
+from ROME.models import CointResult, HedgeFit
 
 
 def _align(log_a: pd.Series, log_b: pd.Series) -> tuple[pd.Series, pd.Series]:

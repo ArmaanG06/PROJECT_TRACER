@@ -34,19 +34,19 @@
 ## Architecture
 configs.yaml + ROME.duckdb + ROME_pairs.csv → runner.py
 runner → formation.py (monthly) ↔ state_mgmt.py
-runner daily loop → decide_targets: spread → zscore → breakdown → signals → sizing → target positions
+runner daily loop → engine.decide_targets: hedge (OLS/Kalman) → spread → zscore → breakdown → signals → sizing → target positions
 runner → trades.py (targets − holdings = orders)
 trades → sim_broker.py (+ portfolio.py) OR ibkr_broker.py
 both brokers → ROME_tradelog.duckdb → report.py, and → state_mgmt.rebuild_from_log()
 
 Principles:
-- The RUNNER is the only place pipeline stages are wired together. No stage file imports another
-  stage (spread doesn't import formation, signals doesn't import zscore, ...). runner.decide_targets() plays the
-  role of the engine, so there is no engine.py. Exception: stats.py is a shared toolbox, not a stage;
-  formation and breakdown may import it.
+- ONLY runner.py and strategy/engine.py wire pipeline stages together. The runner runs the day
+  (fills, formation, orders) and calls engine.decide_targets() once a day; the engine calls the
+  daily stages (kalman, spread, zscore, breakdown, signals, sizing). No stage file imports another
+  stage. Exceptions: models.py (data classes) and toolboxes like stats.py may be imported anywhere.
 - configs.yaml is the control centre: every tunable number, path and switch comes from it. No
   hard-coded parameters in code (only defaults on pure functions, overridden by config at the call).
-- One code path for backtest and live. The broker is the only mode switch.
+- One code path for backtest and live. Mode only matters in run() setup (see below), never in the daily loop.
 - Walk-forward is built in: formation is called inside the runner loop. No separate backtest harness.
 - decide_targets outputs TARGET POSITIONS, not buy/sell signals. trades.py diffs against holdings, so
   it's idempotent (sending the same targets twice places zero orders).
@@ -57,9 +57,12 @@ Principles:
 - Live: reconcile(state vs IBKR positions) before each day. On a mismatch, halt and alert.
 - Live runs once per day after the close (scheduler), then exits. Not a forever loop.
 - Every stage sees data ≤ t only. The runner enforces this.
-- Daily loop in runner.run (no step function; loop body is inline, blocks A–D): fills from today's open → log → rebuild state → reconcile
-  (sim too) → refit if refit day → per pair: spread → zscore → breakdown → signals → sizing
-  (targets + strategy memory) → orders for the next open.
+- Daily loop in runner.run (no step function; loop body is inline, blocks A–D):
+  A. fills from today's open → log → rebuild state → reconcile (sim too)
+  B. refit if refit day (formation) → mark exit-only
+  C. engine.decide_targets (per pair: hedge → spread → zscore → breakdown → signals → sizing)
+     → targets + updated strategy memory → save state
+  D. targets − holdings = orders → human review (paper/live) → execute at the next open.
 - Mode is used in exactly three places, all in run() setup: make_broker (how orders fill), make_calendar
   (which dates run) and pull_today_prices (paper/live only). The daily loop never checks mode.
 - Human gate (paper/live): orders are staged after the close, and I approve or veto them before the
@@ -69,33 +72,37 @@ Principles:
 ## Files and key functions
 | File | Functions | Notes |
 |---|---|---|
-| runner.py | run(mode), decide_targets, make_calendar, is_refit_day(t), last_refit_day(t), pairs_to_manage, hedge_for | Modes: backtest, paper, live. Imports formation + spread so far; the rest are commented stubs |
+| runner.py | run(mode), make_calendar, is_refit_day(t), last_refit_day(t) | Modes: backtest, paper, live. Imports formation + engine; the rest are commented stubs |
+| strategy/engine.py | decide_targets(data, specs, state, rome) → targets, state; pairs_to_manage; hedge_for (SKELETON) | Daily per-pair chain. Pseudocode until the stages it calls exist |
 | (data wrapper, TBD home) | open_prices | Working version exists: research/formation_scan.load_prices → move it here |
 | research/formation_scan.py | load_prices, refit_dates, scan, summarise (BUILT) | Kill/continue scan. Split + output dir from config `research:` |
-| strategy/formation.py | form_pairs(prices, t, pairs, cfg) → PairSpec list (BUILT) | Returns ALL pairs with status + reason; top_n marked `selected`. Cost hurdle is a placeholder until costs.py |
+| models.py | HedgeFit, CointResult, PairSpec (State to come) | ALL data-only classes live here. Any file may import it without importing another stage |
+| strategy/formation.py | form_pairs(prices, t, pairs, rome) → PairSpec list (BUILT) | Takes the whole strategies.ROME section. Lookback applied in _window(t, months from config). Returns ALL pairs with status + reason; top_n marked `selected`. Cost hurdle LIVE (costs.py), sized at min_notional_per_leg |
 | strategy/stats.py | hedge_ratio, cointegration, half_life (BUILT) | Pure functions on log-price Series. Uses statsmodels. rolling_adf not built yet (comes with breakdown.py) |
-| kalman.py | kalman_init, kalman_update | β_t, α_t, P. Used for NEW entries only |
-| strategy/spread.py | calc_spread(log_a, log_b, β, α), pair_spread(prices, a, b, β, α) (SKELETON, I'm coding it) | spread = log_a − α − β·log_b. No trend term (drift removed in zscore). Runner passes frozen β/α for open trades |
-| zscore.py | zscore(spread, lookback) | Rolling μ, σ. ⚠ Solve the drift-lag bias here (see Open/TBD) |
-| signals.py | next_action(z, position, days_held, hl) | Enter, take-profit, stop, time stop, hold |
-| breakdown.py | is_broken(pair, k) | k consecutive rolling-ADF fails |
-| sizing.py | target_shares(pair, σ_spread, capital) | Dollar-neutral, sized off spread vol |
-| costs.py | trade_cost, cost_hurdle | Used by sim fills and the formation filter |
-| state_mgmt.py | open_trade_log, load_state, save_state, rebuild_from_log, reconcile, mark_exit_only | |
-| trades.py | make_orders(targets, holdings) | |
-| portfolio.py | get_portfolio, apply_fill | Sim only |
-| sim_broker.py | get_fills, review, execute | Next-open fills. review = pass-through |
-| ibkr_broker.py | get_fills, get_portfolio, review, execute | Market-on-open orders, paper account first. review = stage for human |
+| strategy/kalman.py | kalman_init, kalman_update | β_t, α_t, P. Used for NEW entries only (hedge.method: kalman) |
+| strategy/spread.py | calc_spread(log_a, log_b, β, α), pair_spread(prices, a, b, β, α) (NOT BUILT; file removed for now) | spread = log_a − α − β·log_b. No trend term (drift removed in zscore). engine.hedge_for passes frozen β/α for open trades |
+| strategy/zscore.py | zscore(spread, lookback) | Rolling μ, σ. ⚠ Solve the drift-lag bias here (see Open/TBD) |
+| strategy/breakdown.py | is_broken(pair, data, state, breakdown_cfg) → broken, state | k consecutive rolling-ADF fails (counts kept in state). Adds rolling_adf to stats.py |
+| strategy/signals.py | next_action(z, pair, state, broken, signal_cfg, breakdown_cfg) | Enter long/short, take-profit, stop, time stop, force-close, hold |
+| strategy/sizing.py | target_shares(pair, action, spread, data, sizing_cfg) | Dollar-neutral, sized off spread vol. Share counts from RAW prices |
+| strategy/costs.py | commission, fill_cost, borrow_cost, round_trip_cost(price_a, price_b, notional, holding_days, costs_cfg) → fraction of notional (BUILT) | Toolbox like stats.py: formation's cost hurdle uses round_trip_cost (now LIVE); sim_broker will use fill_cost + borrow_cost. Settings in config `costs:` (estimates, verify vs IBKR) |
+| execution/state_mgmt.py | open_trade_log, load_state, save_state, rebuild_from_log, reconcile, mark_exit_only | State dataclass goes in models.py |
+| execution/trades.py | make_orders(targets, holdings) | |
+| execution/portfolio.py | get_portfolio, apply_fill | Sim only |
+| execution/sim_broker.py | get_fills, review, execute | Next-open fills, charged with costs.fill_cost / borrow_cost. review = pass-through |
+| execution/ibkr_broker.py | get_fills, get_portfolio, review, execute | Market-on-open orders, paper account first. review = stage for human |
 | report.py | build_report(run_id) | Reads the trade log only |
 | (alerts, TBD home) | halt_and_alert | Email/push. Not built yet |
 
-### Code structure (proposed, not decided)
-- Hybrid. Classes only where there is state plus swappable implementations: Broker interface
-  (SimBroker, IBKRBroker), PairSpec and State as dataclasses, the price view object.
+### Code structure (decided)
+- Hybrid. Data-only classes (PairSpec, HedgeFit, CointResult, later State) ALL live in models.py.
+  Classes with behaviour (Broker interface: SimBroker, IBKRBroker) stay in their own files.
 - Pure functions for all the math (stats, spread, zscore, signals, breakdown, sizing, costs, trades)
-  so the look-ahead and idempotency tests stay trivial. No single "classes" file.
-- Folders: `strategy/` = formation, stats, kalman, spread, zscore, signals, breakdown, sizing, costs.
-  `execution/` = trades, portfolio, sim_broker, ibkr_broker, state_mgmt. runner.py and report.py at ROME root.
+  so the look-ahead and idempotency tests stay trivial.
+- Folders: `strategy/` = engine, formation, stats, costs, kalman, spread, zscore, signals, breakdown, sizing.
+  `execution/` = trades, portfolio, sim_broker, ibkr_broker, state_mgmt.
+  ROME root = runner.py, models.py, report.py. `research/` = one-off analysis scripts (formation_scan).
+  Repo root = utils.py (load_config, get_project_root, hash_config), configs.yaml.
 
 ## Locked strategy decisions
 - Pairs are chosen by hand on economic logic, then confirmed statistically. Never brute-force.
@@ -120,7 +127,8 @@ Principles:
 - A leg needs ≥ 95% of the window's trading days (config `min_coverage`), else status no_data.
 - top_n ranking: shortest half-life, p-value breaks ties (config `rank_by: half_life | pvalue`).
 - Half-life filter: 1–30 days.
-  Cost hurdle: entry_z × σ_spread > 3× round-trip cost across both legs.
+  Cost hurdle: entry_z × σ_spread > 3× (config cost_hurdle_mult) round-trip cost across both legs,
+  with each leg sized at sizing.min_notional_per_leg and holding time = the half-life.
 - Signal: entry ±2, exit 0, stop ±3.5, time stop 3× half-life.
 - Open trades keep their FROZEN entry β. Exit, stop and time-stop checks use the entry-β spread.
 - A pair that drops out at refit becomes exit-only: hold to take-profit, stop or time stop.
@@ -162,6 +170,13 @@ Principles:
   - Tradable half-lives are fast: median 5.4 days (10th–90th pct 3.8–8.4). Half-life filter never binds.
   - Persistence: a tradable pair is tradable again next month only 58% of the time → expect
     exit-only churn.
+- COST HURDLE IMPACT (re-checked on the train scan's tradable rows, $1,000 legs, config cost estimates):
+  - Round trip ≈ 0.49% of notional; ~$4 of the ~$4.90 is the $1 MINIMUM commission × 4 fills.
+  - Tradable pairs per month fall from 8.7 to 6.3. top_n = 5 still mostly fills.
+  - Killed entirely: HYG-JNK (was the #1 pair), IEF-TLT, LQD-TLT, SHY-IEF, SHY-TLT, TIP-IEF, TIP-TLT.
+    Their spreads move too little to beat 3× costs on $1,000 legs.
+  - Lever: bigger legs. The minimum commission is fixed, so its share of cost falls as legs grow.
+  - The kill/continue CSV predates the hurdle; rerun formation_scan to refresh it.
 
 ## Open / TBD (resolve on TRAIN data only, before validation)
 - z-score lookback + DRIFT-LAG BIAS (must be solved when zscore.py is built):
@@ -178,7 +193,7 @@ Principles:
   is often one credit bet three ways. Cap how many selected pairs may share a leg? (e.g. max 2)
 - DEFERRED (config `multiple_testing: none` for now): how to handle the ~4 fake passes per refit
   (72 pairs × ~6%). Read the kill/continue pass counts with this in mind. Options:
-  - Longer window for the cointegration TEST only (β still from 252d). Simulated, trend="ct":
+  - Longer window for the cointegration TEST only (config test_window_months; β still from lookback_months). Simulated, trend="ct":
     252d catches HL10 38% / HL20 17%; 504d catches HL10 90% / HL20 42%. Fake rate ~6–8% either way.
   - Persistence: pass in k of the last m formations. Weaker than it looks: monthly windows share
     ~90% of their data, so fake passes persist too.
@@ -203,20 +218,23 @@ orders and exits. These are needed before paper/live. Rules marked TBD are decid
   TBD: what to do if only one leg fills (reconcile will halt, but there's no rule to fix it).
 - Adjusted vs raw prices: signals use total-return-adjusted prices; share counts must use RAW prices.
   Sizing needs both.
-- Currency: the account is in CAD. If any leg is a US ETF, sizing and costs need an FX conversion. TBD.
+- Currency: the account is in CAD and the ETFs trade in USD. Costs handle it via config costs.fx_bps
+  (0 = USD held in the account). Sizing still needs a CAD→USD conversion for capital. TBD.
 - Kill switch: TBD drawdown / daily-loss limit that halts new entries. Must exist before real money.
 
 ## Build order / status
 - [x] Data layer
-- [ ] runner.py (pseudocode draft 2 approved; real code gets filled in as the modules it calls are built)
+- [ ] runner.py (draft 3: no step(), inline daily loop A–D, calls engine; real code gets filled in as the modules it calls are built)
 - [x] Pair list: LOCKED at 72 pairs (data/store/universes/ROME_pairs.csv). Final, no cuts.
 - [x] stats.py (hedge_ratio, cointegration, half_life; checked on simulated data)
 - [x] formation.py (tested: synthetic cases + look-ahead pass; preliminary real run on 21 pairs)
 - [x] Re-pull the short-history symbols for 2010–now
 - [x] Full formation run on 2012–19, all 72 pairs (kill/continue gate) → CONTINUE
-- [ ] spread.py (skeleton in place, I'm coding it)
-- [ ] zscore (solve drift-lag bias first) → breakdown → signals → sizing → wire into runner.decide_targets (look-ahead test)
-- [ ] costs + portfolio + sim_broker → trades → full backtest → report
+- [x] engine.py skeleton (decide_targets moved out of the runner; pseudocode)
+- [x] costs.py (cost hurdle in formation now live; cost settings are unverified estimates)
+- [ ] spread.py
+- [ ] zscore (solve drift-lag bias first) → breakdown → signals → sizing → fill in engine.decide_targets (look-ahead test)
+- [ ] portfolio + sim_broker (charges fills via costs.fill_cost / borrow_cost) → trades → full backtest → report
 - [ ] kalman → compare OLS vs Kalman
 - [ ] state_mgmt + ibkr_broker + everything under "Live readiness" → paper trading + parity test
 - [ ] holdout (once) → live at 1/3 size

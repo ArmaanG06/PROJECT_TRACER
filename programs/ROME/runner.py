@@ -3,17 +3,13 @@ import pandas as pd
 from utils import get_project_root, hash_config, load_config
 
 # ---- BUILT --------------------------------------------------------------
-from ROME.strategy.formation import form_pairs
-from ROME.strategy.spread import pair_spread            # skeleton, being coded now
+from ROME.strategy.formation import form_pairs          # uses strategy/costs.py for its cost hurdle
+from ROME.strategy.engine import decide_targets         # skeleton: spread/zscore/signals/... are wired in there
 
 # ---- NOT BUILT YET (names from CLAUDE.md's file table) -------------------
-# from ROME.strategy.zscore import zscore
-# from ROME.strategy.signals import next_action
-# from ROME.strategy.breakdown import is_broken
-# from ROME.strategy.sizing import target_shares
 # from ROME.execution.trades import make_orders
 # from ROME.execution.state_mgmt import rebuild_from_log, reconcile, save_state, mark_exit_only
-# from ROME.execution.sim_broker / ibkr_broker import ...
+# from ROME.execution.sim_broker / ibkr_broker import ...   (sim_broker charges fills with costs.fill_cost)
 # from ROME.report import build_report
 
 MODES = {"backtest", "paper", "live"}
@@ -64,11 +60,11 @@ def run(mode):
 
         # ---- B. once a month: re-test the pairs (formation, BUILT) ----------------------
         if specs is None or is_refit_day(t):          # NOT BUILT: is_refit_day, last_refit_day
-            specs = form_pairs(data, last_refit_day(t), pairs, rome["formation"])
+            specs = form_pairs(data, last_refit_day(t), pairs, rome)
             state = mark_exit_only(state, specs)      # NOT BUILT: open pairs that dropped out -> exit-only
 
         # ---- C. tonight: decide what we want to hold tomorrow ---------------------------
-        targets = decide_targets(data, specs, state, rome)
+        targets, state = decide_targets(data, specs, state, rome)    # the engine (strategy/engine.py)
         save_state(state)                             # NOT BUILT: Kalman beta/alpha/P, breakdown counts
 
         # ---- D. send the orders that get us there (they fill at tomorrow's open) --------
@@ -77,25 +73,3 @@ def run(mode):
         broker.execute(orders)
 
     build_report(run_id)                              # NOT BUILT
-
-
-def decide_targets(data, specs, state, rome):
-    """For every pair we trade or hold: spread -> z-score -> breakdown -> signal -> size.
-
-    The runner is the ONLY place these stages are wired together; no strategy file imports another.
-    Returns {pair_id: target shares for each leg}.
-    """
-    targets = {}
-
-    for pair in pairs_to_manage(specs, state):        # NOT BUILT: selected pairs + open trades
-        # open trade -> its FROZEN entry beta/alpha (from state)
-        # new entry  -> this month's beta/alpha (from formation)
-        beta, alpha = hedge_for(pair, state)          # NOT BUILT
-
-        spread = pair_spread(data, pair.a, pair.b, beta, alpha)              # BUILT (skeleton)
-        z = zscore(spread, rome["signal"]["zscore_lookback"])               # NOT BUILT
-        broken = is_broken(pair, state, rome["breakdown"])                  # NOT BUILT
-        action = next_action(z, pair, state, broken, rome["signal"])        # NOT BUILT
-        targets[pair.pair_id] = target_shares(pair, action, spread, rome["sizing"])  # NOT BUILT
-
-    return targets

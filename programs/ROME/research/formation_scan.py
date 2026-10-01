@@ -42,8 +42,8 @@ def refit_dates(prices: pd.DataFrame, start, end) -> list[pd.Timestamp]:
     return list(last_day_of_month.values())
 
 
-def scan(prices: pd.DataFrame, pairs: pd.DataFrame, cfg: dict, dates: list[pd.Timestamp]) -> pd.DataFrame:
-    """Call form_pairs(prices, t, pairs, cfg) for every t in dates.
+def scan(prices: pd.DataFrame, pairs: pd.DataFrame, rome: dict, dates: list[pd.Timestamp]) -> pd.DataFrame:
+    """Call form_pairs(prices, t, pairs, rome) for every t in dates.
 
     Returns one row per pair per month: every PairSpec field as a column.
     """
@@ -54,7 +54,7 @@ def scan(prices: pd.DataFrame, pairs: pd.DataFrame, cfg: dict, dates: list[pd.Ti
         month_number += 1
         print(f"forming month {month_number} of {len(dates)}: {t.date()}")
 
-        specs = form_pairs(prices, t, pairs, cfg)
+        specs = form_pairs(prices, t, pairs, rome)
         for spec in specs:
             row = asdict(spec)
             rows.append(row)
@@ -140,7 +140,7 @@ def main() -> None:
     # 2. run formation every month (statsmodels warns on some odd windows; hide the noise)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        results = scan(prices, pairs, cfg, dates)
+        results = scan(prices, pairs, rome, dates)
 
     # 3. save the full table so it can be opened in Excel
     output_dir = root / research["output_dir"]
