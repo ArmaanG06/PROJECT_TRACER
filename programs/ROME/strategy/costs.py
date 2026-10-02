@@ -1,12 +1,3 @@
-"""Trading costs. A toolbox like stats.py: formation (cost hurdle) and the sim broker (fills)
-both import it, so the backtest charges exactly the costs the filter assumed.
-
-Every number comes from the `costs:` section of configs.yaml (passed in as costs_cfg).
-Dollar amounts are in the trade's currency.
-
-Not charged here: short-leg dividends. They are already inside the total-return prices.
-"""
-
 BPS = 10_000          # 1 basis point = 1 / 10,000
 TRADING_DAYS_PER_YEAR = 252
 
@@ -15,8 +6,8 @@ def _commission(shares: float, price: float, costs_cfg: dict):
     """per-share fee, but never less than the minimum and never more than the cap (% of trade value)."""
     fee = shares * costs_cfg["commission_per_share"]
     floor = costs_cfg["min_commission"]
+    trade_value = shares * price    
     cap = trade_value * costs_cfg["max_commission_pct"]
-    trade_value = shares * price
 
     if fee < floor:
         fee = floor

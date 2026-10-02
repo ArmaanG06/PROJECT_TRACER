@@ -1,13 +1,7 @@
-"""Pair statistics shared by formation and the engine.
-
-Every function is pure: it sees only the window it is given, so look-ahead is the
-caller's job (the runner hands in data <= t). Inputs are LOG total-return-adjusted
-prices as pandas Series on a shared date index.
-"""
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from statsmodels.tsa.stattools import coint
+from statsmodels.tsa.stattools import adfuller, coint
 
 from ROME.models import CointResult, HedgeFit
 
@@ -74,3 +68,14 @@ def half_life(resid: pd.Series) -> float:
     if phi <= 0 or phi >= 1:
         return float("inf")
     return float(-np.log(2) / np.log(phi))
+
+
+def adf_pvalue(series: pd.Series, trend: str = "ct", autolag: str = "aic") -> float:
+    """ADF test p-value: does this ONE series get pulled back to normal? (small p = yes)
+
+    For a spread whose beta is already fixed (an open trade's frozen beta). Not Engle-Granger:
+    that one estimates beta itself and asks if SOME beta works, not if THIS beta still works.
+    """
+    result = adfuller(series, regression=trend, autolag=autolag)
+    pvalue = result[1]
+    return float(pvalue)

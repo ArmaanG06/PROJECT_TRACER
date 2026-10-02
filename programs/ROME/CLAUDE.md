@@ -11,6 +11,7 @@
 - Build agile: one file at a time. Spec → I code → you review → next file.
 - When I ask for next steps, use the same format every time: bold numbered step titles, each with
   one or two plain-English lines underneath. Concise, in build order, done items left out.
+  Always the WHOLE remaining roadmap through to live, grouped by phase, not just the current phase.
 - **Keep this file current.** When a decision is made, a file is finished, or a TBD is resolved,
   update the relevant section and tell me what you changed.
 
@@ -78,14 +79,14 @@ Principles:
 | research/formation_scan.py | load_prices, refit_dates, scan, summarise (BUILT) | Kill/continue scan. Split + output dir from config `research:` |
 | models.py | HedgeFit, CointResult, PairSpec (State to come) | ALL data-only classes live here. Any file may import it without importing another stage |
 | strategy/formation.py | form_pairs(prices, t, pairs, rome) → PairSpec list (BUILT) | Takes the whole strategies.ROME section. Lookback applied in _window(t, months from config). Returns ALL pairs with status + reason; top_n marked `selected`. Cost hurdle LIVE (costs.py), sized at min_notional_per_leg |
-| strategy/stats.py | hedge_ratio, cointegration, half_life (BUILT) | Pure functions on log-price Series. Uses statsmodels. rolling_adf not built yet (comes with breakdown.py) |
+| strategy/stats.py | hedge_ratio, cointegration, half_life, adf_pvalue (BUILT) | Pure functions. Uses statsmodels. adf_pvalue = plain ADF on one series with a FIXED beta (breakdown); cointegration = Engle-Granger, estimates beta (formation) |
 | strategy/kalman.py | kalman_init, kalman_update | β_t, α_t, P. Used for NEW entries only (hedge.method: kalman) |
-| strategy/spread.py | calc_spread(log_a, log_b, β, α), pair_spread(prices, a, b, β, α) (NOT BUILT; file removed for now) | spread = log_a − α − β·log_b. No trend term (drift removed in zscore). engine.hedge_for passes frozen β/α for open trades |
-| strategy/zscore.py | zscore(spread, lookback) | Rolling μ, σ. ⚠ Solve the drift-lag bias here (see Open/TBD) |
-| strategy/breakdown.py | is_broken(pair, data, state, breakdown_cfg) → broken, state | k consecutive rolling-ADF fails (counts kept in state). Adds rolling_adf to stats.py |
-| strategy/signals.py | next_action(z, pair, state, broken, signal_cfg, breakdown_cfg) | Enter long/short, take-profit, stop, time stop, force-close, hold |
+| strategy/spread.py | pair_spread(prices, a, b, β, α) (BUILT) | spread = log(adj_a) − α − β·log(adj_b), on dates where both legs have a price. No trend term (drift removed in zscore). engine.hedge_for passes frozen β/α for open trades. Checked: matches formation's residual + trend line to 1e-15 |
+| strategy/zscore.py | zscore(spread, N) → Series of z (BUILT) | Option A: (spread − mean of previous N days) / std of previous N days. N = config signal.zscore_lookback. std 0 → NaN. Checked: hand check, no cap, look-ahead, flat cases |
+| strategy/breakdown.py | is_broken(spread, fail_count, days_open, breakdown_cfg, trend, autolag) → broken, fail_count (BUILT) | Open trades only, frozen-β spread. Tests every check_every_days; p ≥ pvalue = fail; pass resets the count; not a check day / short history = no change. Only REPORTS; signals decides force_close/hold. Engine reads/writes fail_count + days_open in state (State not built yet) |
+| strategy/signals.py | next_action(z_today, pair, state, broken, signal_cfg, breakdown_cfg) | Enter long/short, take-profit, stop, time stop, force-close, hold. z_today = one number (today's z), NaN if a leg has no price today: NaN = no new entry; exit rule for NaN TBD in the signals spec |
 | strategy/sizing.py | target_shares(pair, action, spread, data, sizing_cfg) | Dollar-neutral, sized off spread vol. Share counts from RAW prices |
-| strategy/costs.py | commission, fill_cost, borrow_cost, round_trip_cost(price_a, price_b, notional, holding_days, costs_cfg) → fraction of notional (BUILT) | Toolbox like stats.py: formation's cost hurdle uses round_trip_cost (now LIVE); sim_broker will use fill_cost + borrow_cost. Settings in config `costs:` (estimates, verify vs IBKR) |
+| strategy/costs.py | _commission (private), fill_cost, borrow_cost, round_trip_cost(price_a, price_b, notional, holding_days, costs_cfg) → fraction of notional (BUILT) | Toolbox like stats.py: formation's cost hurdle uses round_trip_cost (now LIVE); sim_broker will use fill_cost + borrow_cost. Settings in config `costs:` (estimates, verify vs IBKR) |
 | execution/state_mgmt.py | open_trade_log, load_state, save_state, rebuild_from_log, reconcile, mark_exit_only | State dataclass goes in models.py |
 | execution/trades.py | make_orders(targets, holdings) | |
 | execution/portfolio.py | get_portfolio, apply_fill | Sim only |
@@ -115,7 +116,8 @@ Principles:
 - Trending spreads are allowed and WILL be traded: a spread that drifts steadily and oscillates
   around that drift is trend-stationary, which is what the trend="ct" test checks for. A spread
   that wanders with no anchor (a random walk) is still rejected. Estimate half-life on the DETRENDED residual.
-  Remove drift once only: rolling mean in OLS mode, α_t in Kalman mode.
+  Remove drift once only: rolling mean in OLS mode, α_t in Kalman mode. (Formation's fitted trend is
+  used for the test and half-life only, never projected forward for trading.)
 - Engle-Granger direction: a on b only (symbol_a is the dependent leg, CSV order).
 - Formation windows in months (config): lookback_months = 12 for β/α/half-life/σ,
   test_window_months = 12 for the cointegration test (may lengthen later).
@@ -129,10 +131,20 @@ Principles:
 - Half-life filter: 1–30 days.
   Cost hurdle: entry_z × σ_spread > 3× (config cost_hurdle_mult) round-trip cost across both legs,
   with each leg sized at sizing.min_notional_per_leg and holding time = the half-life.
-- Signal: entry ±2, exit 0, stop ±3.5, time stop 3× half-life.
+- Z-SCORE = OPTION A (decided on train data, see Research hygiene): plain rolling z of the spread,
+  z = (spread today − mean of the N days BEFORE today) / std of those N days. Formation's drift line
+  is NOT used for z (it doesn't persist out of sample). Drift is handled by the rolling mean only.
+  "Days before today" (not including today) because including today caps |z| at (N−1)/√N
+  (N=10 → 2.85, so a 3.5 stop could never fire).
+- Signal thresholds in z units, ONE set for all pairs: entry ±2, exit 0, stop ±3.5, time stop 3× half-life.
+  Starting values, tuned in the backtest. No per-pair thresholds: the rolling z already adapts to each
+  pair and to the volatility regime (see Research hygiene).
 - Open trades keep their FROZEN entry β. Exit, stop and time-stop checks use the entry-β spread.
 - A pair that drops out at refit becomes exit-only: hold to take-profit, stop or time stop.
 - Confirmed breakdown (k consecutive fails): config toggle force_close | hold. Compare both.
+  Settings (from simulation, 30-day trades): window 252, fail if p ≥ 0.30, weekly checks, k = 3.
+  Old 126 / 0.10 / daily flagged 55–82% of HEALTHY pairs broken. New: 0–7% false alarms, catches 72%
+  of truly broken pairs. Breakdown is a SLOW backstop; the stop (±3.5) and time stop are the fast protection.
 - Fills at the NEXT OPEN, at the actual open price, gaps included (a 3.5 stop can fill at 4.5).
 - Costs: commission, half-spread per leg, borrow fee, FX. Short-leg dividends are already in the
   total-return series. Do NOT charge them again.
@@ -177,18 +189,25 @@ Principles:
     Their spreads move too little to beat 3× costs on $1,000 legs.
   - Lever: bigger legs. The minimum commission is fixed, so its share of cost falls as legs grow.
   - The kill/continue CSV predates the hurdle; rerun formation_scan to refresh it.
+- Z-SCORE METHOD TEST (train, 838 tradable pair-months, next 21 trading days after each refit):
+  - Formation's drift barely persists: next-month slope = 0.18 × formation slope (1 = persists,
+    0 = noise). Projecting the line misses next month's centre by 0.98σ vs 0.96σ for a flat line.
+  - Out-of-sample z (median |avg z| / drift-side bias / days beyond ±2, ideal ≈ 0 / 0 / 4.6%):
+    A N=10 0.40/+0.07/5.9% · A N=20 0.68/+0.12/10.6% · A N=60 1.04/+0.39/14.8% ·
+    B line 0.98/−0.34/21.8% · C N=10 0.42/−0.11/5.9% · C N=20 0.73/−0.17/11.1% · C N=40 0.94/−0.22/13.5%.
+  - B worst (projects a drift that stops). C over-corrects (bias flips negative), no better than A.
+    Lookback length matters more than the method. → Option A chosen.
+  - Per-pair thresholds not needed: each pair's 95th-pct |z| in its formation year is 1.93–2.10 at
+    N=10 (2.09–2.36 at N=20), and a pair's own level doesn't predict next month (correlation 0.00).
 
 ## Open / TBD (resolve on TRAIN data only, before validation)
-- z-score lookback + DRIFT-LAG BIAS (must be solved when zscore.py is built):
-  - Problem: on a drifting spread the rolling mean sits N/2 days in the past, so it lags the drift
-    line by about drift × N / 2. z then reads off-centre even when there is no mispricing.
-  - Example: drift 0.0002/day, N = 60, spread vol 0.02 → lag 0.006 → z permanently +0.3.
-    Entries fire at a true 1.7 on the drift side and need a true 2.3 on the other; exits at 0 are off too.
-  - Options: (a) shorter lookback (less lag, noisier z); (b) measure z from the drift line fitted at
-    formation instead of the rolling mean (still removes drift once only); (c) either way, check on
-    train that each pair's average z is ≈ 0.
+- z-score lookback N (config signal.zscore_lookback, starting 20): choose by backtest, try 15–30.
+  Final pick on backtest profit, NOT on "average z ≈ 0" (short N always looks centred because it hugs the spread).
+- Signal thresholds (entry ±2, exit 0, stop ±3.5, time stop 3× HL): starting values, tune by backtest.
+  A regime switch (e.g. wider entry when overall vol is high) is a later experiment, after the baseline.
 - Kalman δ and observation variance
-- Breakdown window, p-value and k
+- Breakdown settings: starting values set from simulation (252 / 0.30 / weekly / k=3); confirm in the
+  backtest along with force_close vs hold.
 - Leg concentration: HYG sits in the selected top 5 in 92% of months, LQD 72%, JNK 66%. The top 5
   is often one credit bet three ways. Cap how many selected pairs may share a leg? (e.g. max 2)
 - DEFERRED (config `multiple_testing: none` for now): how to handle the ~4 fake passes per refit
@@ -232,11 +251,27 @@ orders and exits. These are needed before paper/live. Rules marked TBD are decid
 - [x] Full formation run on 2012–19, all 72 pairs (kill/continue gate) → CONTINUE
 - [x] engine.py skeleton (decide_targets moved out of the runner; pseudocode)
 - [x] costs.py (cost hurdle in formation now live; cost settings are unverified estimates)
-- [ ] spread.py
-- [ ] zscore (solve drift-lag bias first) → breakdown → signals → sizing → fill in engine.decide_targets (look-ahead test)
-- [ ] portfolio + sim_broker (charges fills via costs.fill_cost / borrow_cost) → trades → full backtest → report
-- [ ] kalman → compare OLS vs Kalman
-- [ ] state_mgmt + ibkr_broker + everything under "Live readiness" → paper trading + parity test
+- [x] spread.py (hand check + formation cross-check pass)
+- [x] z-score method decided: option A (train-data test)
+- [x] zscore.py (wired into engine step 3; engine passes z_today, NaN if a leg has no price today)
+Phase 1, strategy side:
+- [x] breakdown.py + stats.adf_pvalue (wired into engine step 4; State parts still pseudocode)
+- [ ] signals.py (incl. the rule for an open trade on a no-fresh-z day)
+- [ ] sizing.py (leg size, shared-ticker cap)
+- [ ] fill in engine (pairs_to_manage, hedge_for) → look-ahead test
+Phase 2, execution + backtest:
+- [ ] models.State + state_mgmt.py + ROME trade log (state always rebuilt from the log)
+- [ ] trades.py (targets − holdings; adds targets per TICKER: shared-legs rule)
+- [ ] portfolio.py + sim_broker.py (next-open fills, charged via costs.fill_cost / borrow_cost)
+- [ ] backtest = runner in backtest mode (fill in open_prices, make_calendar, is_refit_day). No separate harness
+- [ ] report.py (reads the trade log only)
+- [ ] GATE: train backtest after costs. Poor net Sharpe → stop here
+Phase 3, improvement:
+- [ ] kalman.py → compare OLS vs Kalman
+Phase 4, live path:
+- [ ] ibkr_broker.py (same interface as sim_broker, plus approve/veto)
+- [ ] everything under "Live readiness"
+- [ ] paper trading + parity test
 - [ ] holdout (once) → live at 1/3 size
 
 ## Required tests

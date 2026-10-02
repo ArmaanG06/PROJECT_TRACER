@@ -4,115 +4,126 @@
 #   Linux    ~/.pgpass  (chmod 600)
 #   Format   wrds-pgdata.wharton.upenn.edu:9737:wrds:<user>:<password>
 #
+# "→" after a setting = where the code reads it: file.function `variable name there`.
+# "→ not read yet" = the file that will use it isn't built yet.
 
 data:
   # Canonical frame columns every provider returns, in order.
-  columns: [date, open, high, low, close, adj_close, volume]
-  start: 2010-01-01
-  end: null
-  default_provider: wrds
-  provider_order: [ibkr, wrds, yfinance]
+  columns: [date, open, high, low, close, adj_close, volume]   # → data_pulling `COLUMNS`
+  start: 2010-01-01                                             # → one_time_scripts/ROME_data_collection.py `--start` default
+  end: null                                                     # → same, `--end` default (null = latest)
+  default_provider: wrds                                        # → same, `--source` default
+  provider_order: [ibkr, wrds, yfinance]                        # → data_pulling `PROVIDER_ORDER` (failover order)
 
-  DB_path: data/store
-  constituents: data/store/universes
-  trade_log: data/store/trade_log
+  DB_path: data/store                                           # → data_helper.db_path()
+  constituents: data/store/universes                            # → data_helper (universe files folder)
+  trade_log: data/store/trade_log                               # → not read yet (state_mgmt.open_trade_log)
 
-  providers:
-    ibkr:
+  providers:                                                    # → each adapter reads its own block as `config`
+    ibkr:                                                       #   data_pulling/ibkr.py
       host: 127.0.0.1
       port: 7497          # TWS paper. live 7496 | Gateway paper 4002 | live 4001
       client_id: 11
       timeout: 30
       pace_seconds: 2.5   # TWS allows 60 historical requests per 10 min
 
-    wrds:
+    wrds:                                                       #   data_pulling/wrds.py
       username: null      # null -> read it from pgpass
       daily_table: crsp.dsf_v2
       info_table: crsp.stksecurityinfohist
 
-    yfinance:
+    yfinance:                                                   #   data_pulling/yfinance.py
       auto_adjust: false
 
 # How many calendar days short of the requested end a series may stop before it
 # counts as a failure (covers weekends and holidays).
-coverage_slack_days: 5
+coverage_slack_days: 5                                          # → data_helper `slack`
 
 logging:
-  level: INFO
+  level: INFO                                                   # → data_helper.configure_logging
 
 
 strategies:
   ROME:
-    status: dev
-    description: ETF pairs trading across commodity, rates, credit and FX proxies.
-    db: data/store/ROME.duckdb 
+    status: dev                                                 # label only, not read by code
+    description: ETF pairs trading across commodity, rates, credit and FX proxies.   # label only
+    db: data/store/ROME.duckdb                                  # → runner.run `db_file`, formation_scan.main
 
     # Every null below is a TBD and MUST be pinned before the holdout is
     # touched. Log every variant run with its config hash + variant ID.
 
     # --- formation: which pairs are tradable. Refit monthly. ---------------
     formation:
-      pairs_file: data/store/universes/ROME_pairs.csv
+      pairs_file: data/store/universes/ROME_pairs.csv   # → runner.run `pairs`, formation_scan.main `pairs`
       lookback_months: 12      # window for beta, alpha, half-life, sigma (data <= t only)
+                               #   → formation._test_pair `fit_win` (via _window `months`)
       test_window_months: 12   # window for the cointegration test; can go longer than lookback later
-      refit: monthly
-      top_n: 5
-      halflife_min: 1          # trading days
-      halflife_max: 30         # trading days
-      cost_hurdle_mult: 3.0    # entry_z x sigma must beat this many round-trip costs (not active until costs.py)
-      coint_pvalue: 0.05
-      coint_trend: ct          # Engle-Granger constant + trend
-      coint_autolag: aic       # how the Engle-Granger test picks its lag count: aic | bic | t-stat
-      coint_direction: a_on_b  # symbol_a is the dependent leg, as ordered in pairs_file
-      allow_negative_beta: false  # beta <= 0 = long both / short both = directional, not a hedge
+                               #   → formation._test_pair `test_win` (via _window `months`)
+      refit: monthly           # → not read yet (runner.is_refit_day)
+      top_n: 5                 # → formation._select `top_n`
+      halflife_min: 1          # trading days → formation._test_pair half-life filter on `hl`
+      halflife_max: 30         # trading days → same
+      cost_hurdle_mult: 3.0    # expected move must beat this many round-trip costs
+                               #   → formation._passes_cost_hurdle `hurdle_mult`
+      coint_pvalue: 0.05       # → formation._test_pair p-value filter on `pvalue`
+      coint_trend: ct          # Engle-Granger constant + trend → stats.hedge_ratio / stats.cointegration `trend`
+      coint_autolag: aic       # aic | bic | t-stat → stats.cointegration `autolag`
+      coint_direction: a_on_b  # documentation only: the code always regresses symbol_a on symbol_b
+      allow_negative_beta: false  # beta <= 0 = long both / short both → formation._test_pair beta filter
       min_coverage: 0.95       # share of the window's trading days each leg must have
-      rank_by: half_life       # half_life | pvalue — which tradable pairs make top_n
-      multiple_testing: none   # deferred; ~4 of 72 pairs can pass by chance each refit
+                               #   → formation._test_pair `coverage` check
+      rank_by: half_life       # half_life | pvalue → formation._select `rank_by` (picks from RANKERS)
+      multiple_testing: none   # deferred, not read by code; ~4 of 72 pairs can pass by chance each refit
 
     # --- signal -----------------------------------------------------------
+    # Thresholds are in z units and are STARTING values: tune them in the backtest (check
+    # neighbouring values hold up). One set for all pairs: the rolling z already adapts per pair.
     signal:
-      entry_z: 2.0
-      exit_z: 0.0
-      stop_z: 3.5
-      time_stop_mult: 3.0      # multiple of the pair's half-life
-      zscore_lookback: null    # TBD — pre-register before the holdout
+      entry_z: 2.0             # → formation._passes_cost_hurdle `entry_z`; not read yet in signals.next_action
+      exit_z: 0.0              # → not read yet (signals.next_action)
+      stop_z: 3.5              # → not read yet (signals.next_action)
+      time_stop_mult: 3.0      # multiple of the pair's half-life → not read yet (signals.next_action)
+      zscore_lookback: 20      # the N in zscore.zscore(spread, N): how many past days define "normal".
+                               #   Starting value; choose by backtest (try 15-30). → engine.decide_targets
 
     # --- hedge ratio ------------------------------------------------------
     hedge:
-      method: ols              # ols | kalman
-      kalman_delta: null       # TBD
-      kalman_obs_var: null     # TBD
+      method: ols              # ols | kalman → engine.hedge_for (pseudocode)
+      kalman_delta: null       # TBD → not read yet (kalman.py)
+      kalman_obs_var: null     # TBD → not read yet (kalman.py)
 
     # --- cointegration breakdown while a trade is open --------------------
-    breakdown:
+    breakdown:                 # → breakdown.is_broken `breakdown_cfg`; action → not read yet (signals.next_action)
       action: force_close      # force_close | hold — toggle to compare
-      window: 126
-      pvalue: 0.10
-      consecutive_fails: 3     # k checks in a row before acting
+      window: 252              # days of spread tested → is_broken `window` (was 126: flagged 82% of healthy pairs)
+      pvalue: 0.30             # a check FAILS if p >= this → is_broken `fail_p` (was 0.10)
+      consecutive_fails: 3     # k fails in a row = broken → is_broken `fails_needed` (3 weekly checks = 3 weeks)
+      check_every_days: 5      # test once a week, not daily (daily windows overlap) → is_broken `check_every`
 
     # --- sizing -----------------------------------------------------------
     sizing:
-      capital: 10000           # C$
-      risk_per_pair: 0.01      # fraction of capital, from SPREAD vol
-      min_notional_per_leg: 1000
+      capital: 10000           # C$ → not read yet (sizing.target_shares)
+      risk_per_pair: 0.01      # fraction of capital, from SPREAD vol → not read yet (sizing.target_shares)
+      min_notional_per_leg: 1000   # → formation._passes_cost_hurdle `notional`; later sizing.target_shares
       # max_pairs is derived, not set: capital // (2 * min_notional_per_leg)
 
     # --- costs (read by strategy/costs.py) ---------------------------------
     # ESTIMATES, NOT VERIFIED: check against your IBKR account's actual pricing plan.
     costs:
-      commission_per_share: 0.005  # USD per share, each order (IBKR "Fixed" plan for US stocks/ETFs)
-      min_commission: 1.00         # USD minimum per order
-      max_commission_pct: 0.01     # commission capped at 1% of the trade's value
-      half_spread_bps: 2.0         # half the bid-ask spread, per fill. Liquid ETFs ~0.5-2; thin ones (FXF, FXB) wider
-      borrow_fee_annual: 0.005     # short-leg borrow, 0.5% a year (easy-to-borrow ETFs)
-      fx_bps: 0.0                  # 0 = USD is held in the account; set > 0 if every trade converts CAD<->USD
+      commission_per_share: 0.005  # USD per share, each order (IBKR "Fixed" plan) → costs._commission `fee`
+      min_commission: 1.00         # USD minimum per order → costs._commission `floor`
+      max_commission_pct: 0.01     # commission capped at 1% of trade value → costs._commission `cap`
+      half_spread_bps: 2.0         # half the bid-ask spread, per fill → costs.fill_cost `spread_cost`
+                                   #   Liquid ETFs ~0.5-2; thin ones (FXF, FXB) wider
+      borrow_fee_annual: 0.005     # short-leg borrow, 0.5% a year → costs.borrow_cost `yearly_fee`
+      fx_bps: 0.0                  # 0 = USD held in the account → costs.fill_cost `fx_cost`
 
     # --- execution --------------------------------------------------------
     execution:
-      fill: next_open
+      fill: next_open          # → not read yet (sim_broker)
 
     # --- walk-forward splits; holdout runs ONCE ---------------------------
-    splits:
+    splits:                    # → formation_scan.main `split_start, split_end`; later runner.make_calendar
       train: [2012-01-01, 2019-12-31]
       validate: [2020-01-01, 2022-12-31]
       holdout: [2023-01-01, 2026-09-29]
@@ -120,11 +131,11 @@ strategies:
 # Run controls. Kept OUTSIDE strategies.ROME so they don't change the variant hash
 # (a backtest and a paper run of the same variant must share one ID).
 run:
-  mode: backtest               # backtest | paper | live
-  split: train                 # train | validate | holdout (one per run)
-  holdout_unlocked: false      # must be true AND no prior holdout run in the trade log
+  mode: backtest               # backtest | paper | live → not read yet (today runner.run takes `mode` as an argument)
+  split: train                 # train | validate | holdout (one per run) → not read yet (runner.make_calendar)
+  holdout_unlocked: false      # must be true AND no prior holdout run in the trade log → not read yet (runner.make_calendar)
 
 # Research scripts (programs/ROME/research/). Outside strategies.ROME so they don't change the hash.
 research:
-  output_dir: programs/ROME/research/output
-  scan_split: train            # formation_scan runs on this split only (research on train, never holdout)
+  output_dir: programs/ROME/research/output   # → formation_scan.main `output_dir`
+  scan_split: train            # research on train, never holdout → formation_scan.main `split`

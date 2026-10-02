@@ -1,11 +1,4 @@
-"""Every data-only class in ROME lives here: one place to look, imported wherever it's needed.
-
-Data-only = it holds values and has no behaviour. Classes WITH behaviour (e.g. the brokers)
-stay in their own files. Because these sit outside every pipeline stage, any stage can import
-them without importing another stage (formation, state_mgmt and the runner all use PairSpec).
-"""
 from dataclasses import dataclass
-from typing import NamedTuple
 
 import pandas as pd
 
@@ -18,7 +11,7 @@ class HedgeFit:
     trend: float
     resid: pd.Series
 
-@dataclass(frozenn=True)
+@dataclass(frozen=True)
 class CointResult:
     tstat: float
     pvalue: float

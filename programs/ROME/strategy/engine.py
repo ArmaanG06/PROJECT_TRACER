@@ -9,12 +9,13 @@ SKELETON: every NOT BUILT line is pseudocode until that stage exists.
 import pandas as pd
 
 from ROME.models import PairSpec
+from ROME.strategy.spread import pair_spread
+from ROME.strategy.zscore import zscore
+from ROME.strategy.breakdown import is_broken
+
 
 # ---- NOT BUILT YET ---------------------------------------------------------
-# from ROME.strategy.spread import pair_spread
 # from ROME.strategy.kalman import kalman_update
-# from ROME.strategy.zscore import zscore
-# from ROME.strategy.breakdown import is_broken
 # from ROME.strategy.signals import next_action
 # from ROME.strategy.sizing import target_shares
 
@@ -38,16 +39,33 @@ def decide_targets(data: pd.DataFrame, specs: list[PairSpec], state, rome: dict)
         beta, alpha = hedge_for(pair, data, state, rome)
 
         # 2. the gap between the legs: log_a - alpha - beta * log_b
-        spread = pair_spread(data, pair.a, pair.b, beta, alpha)                     # NOT BUILT
+        spread = pair_spread(data, pair.a, pair.b, beta, alpha)
 
-        # 3. how stretched is it?  (solve the drift-lag bias here, see CLAUDE.md)
-        z = zscore(spread, rome["signal"]["zscore_lookback"])                       # NOT BUILT
+        # 3. how stretched is it today?  (option A: today vs the previous N days, see CLAUDE.md)
+        z = zscore(spread, rome["signal"]["zscore_lookback"])
 
-        # 4. has an OPEN pair stopped behaving like a pair?  (k fails in a row, counts kept in state)
-        broken, state = is_broken(pair, data, state, rome["breakdown"])             # NOT BUILT
+        # only TODAY's z matters for the decision. If either leg has no price today, the spread's
+        # last date is an older day, so there is no fresh z: treat it as "no signal" (NaN).
+        today = data.index[-1]
+        if spread.index[-1] == today:
+            z_today = z.iloc[-1]
+        else:
+            z_today = float("nan")
+
+        # 4. has an OPEN pair stopped behaving like a pair?  (weekly test, k fails in a row)
+        #    only open trades are tested; `spread` above already uses the trade's FROZEN beta
+        broken = False
+        if trade_is_open(pair, state):                                              # NOT BUILT (State)
+            fail_count = state_fail_count(pair, state)                              # NOT BUILT (State)
+            days_open = state_days_open(pair, state)                                # NOT BUILT (State)
+            broken, fail_count = is_broken(spread, fail_count, days_open, rome["breakdown"],
+                                           rome["formation"]["coint_trend"],
+                                           rome["formation"]["coint_autolag"])
+            state = set_fail_count(pair, state, fail_count)                         # NOT BUILT (State)
 
         # 5. what to do: enter long/short, take profit, stop, time stop, force-close, or hold
-        action = next_action(z, pair, state, broken, rome["signal"], rome["breakdown"])  # NOT BUILT
+        #    z_today = NaN must mean "no new entry"; exits on an open trade still need a rule (signals spec)
+        action = next_action(z_today, pair, state, broken, rome["signal"], rome["breakdown"])  # NOT BUILT
 
         # 6. how many shares of each leg we WANT to hold after tomorrow's open (0 = flat)
         targets[pair.pair_id] = target_shares(pair, action, spread, data, rome["sizing"])  # NOT BUILT
