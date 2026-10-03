@@ -27,6 +27,8 @@ def run(mode):
     root = get_project_root()
     run_id = hash_config(rome)                        # variant ID = hash of strategies.ROME only
     db_file = root / rome["db"]
+    if rome["status"] != "active":
+        raise ValueError(f"ROME is not active: status={rome['status']}")
 
     # paper/live: add today's close to the db BEFORE loading prices (a backtest never touches the db)
     if mode != "backtest":

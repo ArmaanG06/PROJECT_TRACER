@@ -12,11 +12,12 @@ from ROME.models import PairSpec
 from ROME.strategy.spread import pair_spread
 from ROME.strategy.zscore import zscore
 from ROME.strategy.breakdown import is_broken
+from ROME.strategy.signals import levels, next_action
+from ROME.strategy.costs import round_trip_cost          # toolbox: today's cost for cost_aware levels
 
 
 # ---- NOT BUILT YET ---------------------------------------------------------
 # from ROME.strategy.kalman import kalman_update
-# from ROME.strategy.signals import next_action
 # from ROME.strategy.sizing import target_shares
 
 
@@ -63,12 +64,27 @@ def decide_targets(data: pd.DataFrame, specs: list[PairSpec], state, rome: dict)
                                            rome["formation"]["coint_autolag"])
             state = set_fail_count(pair, state, fail_count)                         # NOT BUILT (State)
 
-        # 5. what to do: enter long/short, take profit, stop, time stop, force-close, or hold
-        #    z_today = NaN must mean "no new entry"; exits on an open trade still need a rule (signals spec)
-        action = next_action(z_today, pair, state, broken, rome["signal"], rome["breakdown"])  # NOT BUILT
+        # 5a. today's entry / exit / stop levels (config signal.threshold_mode: fixed | cost_aware)
+        #     cost_over_sigma = round-trip cost / today's wiggle (the same N-day sigma the z-score used)
+        N = rome["signal"]["zscore_lookback"]
+        sigma_today = spread.iloc[-(N + 1):-1].std()
+        cost = round_trip_cost(data[pair.a].iloc[-1], data[pair.b].iloc[-1],
+                               rome["sizing"]["min_notional_per_leg"],         # swap for the real leg size once sizing.py exists
+                               pair.half_life, rome["costs"])
+        cost_over_sigma = cost / sigma_today
+        entry_level, exit_level, stop_level = levels(rome["signal"], cost_over_sigma)
+
+        # 5b. the decision: new direction (+1 long spread, -1 short spread, 0 flat) and why
+        direction = state_direction(pair, state)                                    # NOT BUILT (State): 0 if flat
+        days_held = state_days_open(pair, state)                                    # NOT BUILT (State): 0 if flat
+        entry_half_life = state_entry_half_life(pair, state)                        # NOT BUILT (State)
+        can_enter = pair.selected                                                   # exit-only pairs can't open
+        new_direction, reason = next_action(z_today, direction, days_held, entry_half_life, broken, can_enter,
+                                            entry_level, exit_level, stop_level,
+                                            rome["signal"], rome["breakdown"])
 
         # 6. how many shares of each leg we WANT to hold after tomorrow's open (0 = flat)
-        targets[pair.pair_id] = target_shares(pair, action, spread, data, rome["sizing"])  # NOT BUILT
+        targets[pair.pair_id] = target_shares(pair, new_direction, spread, data, rome["sizing"])  # NOT BUILT
 
     return targets, state
 

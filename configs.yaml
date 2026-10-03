@@ -85,6 +85,12 @@ strategies:
       time_stop_mult: 3.0      # multiple of the pair's half-life → not read yet (signals.next_action)
       zscore_lookback: 20      # the N in zscore.zscore(spread, N): how many past days define "normal".
                                #   Starting value; choose by backtest (try 15-30). → engine.decide_targets
+      threshold_mode: fixed    # fixed | cost_aware → signals.levels `mode`
+                               #   fixed      = entry_z / exit_z / stop_z exactly as above
+                               #   cost_aware = entry rises when today's cost is big vs today's wiggle;
+                               #                the stop moves up with it (same gap above the entry)
+      cost_aware_mult: 2.0     # cost_aware only: entry must be >= this x (cost / sigma) → signals.levels `mult`
+                               #   Starting value, tune in the backtest
 
     # --- hedge ratio ------------------------------------------------------
     hedge:
@@ -95,9 +101,9 @@ strategies:
     # --- cointegration breakdown while a trade is open --------------------
     breakdown:                 # → breakdown.is_broken `breakdown_cfg`; action → not read yet (signals.next_action)
       action: force_close      # force_close | hold — toggle to compare
-      window: 252              # days of spread tested → is_broken `window` (was 126: flagged 82% of healthy pairs)
-      pvalue: 0.30             # a check FAILS if p >= this → is_broken `fail_p` (was 0.10)
-      consecutive_fails: 3     # k fails in a row = broken → is_broken `fails_needed` (3 weekly checks = 3 weeks)
+      window: 252              # days of spread tested → is_broken `window`
+      pvalue: 0.30             # a check FAILS if p >= this → is_broken `fail_p`
+      consecutive_fails: 3     # k fails in a row = broken → is_broken `fails_needed`
       check_every_days: 5      # test once a week, not daily (daily windows overlap) → is_broken `check_every`
 
     # --- sizing -----------------------------------------------------------
@@ -110,6 +116,9 @@ strategies:
     # --- costs (read by strategy/costs.py) ---------------------------------
     # ESTIMATES, NOT VERIFIED: check against your IBKR account's actual pricing plan.
     costs:
+      enabled: true                # false = trading is free EVERYWHERE: no charges on fills, and the cost
+                                   #   hurdle / cost-aware entry stop filtering. Shows the strategy on merit.
+                                   #   Real decisions are made with this ON. → costs.fill_cost / borrow_cost
       commission_per_share: 0.005  # USD per share, each order (IBKR "Fixed" plan) → costs._commission `fee`
       min_commission: 1.00         # USD minimum per order → costs._commission `floor`
       max_commission_pct: 0.01     # commission capped at 1% of trade value → costs._commission `cap`

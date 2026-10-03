@@ -81,16 +81,28 @@ def _test_pair(prices, t, a, b, rome) -> PairSpec:
         return spec("not_cointegrated", f"p {pvalue:.3f} >= {cfg['coint_pvalue']}", **stats)
     if not cfg["halflife_min"] <= hl <= cfg["halflife_max"]:
         return spec("half_life", f"half-life {hl:.1f}d outside " f"{cfg['halflife_min']}-{cfg['halflife_max']}d", **stats)
-    if not _passes_cost_hurdle(a, b, sigma, hl, prices, rome):
-        return spec("cost", "entry_z x sigma below the cost hurdle", **stats)
+    # the spread the z-score will actually trade: log_a - alpha - beta * log_b (no trend removed)
+    fit_spread = fit_win[a] - fit.alpha - fit.beta * fit_win[b]
+    if not _passes_cost_hurdle(a, b, fit_spread, hl, prices, rome):
+        return spec("cost", "entry_z x typical 20-day sigma below the cost hurdle", **stats)
 
     return spec("tradable", "", **stats)
 
 
-def _passes_cost_hurdle(a: str, b: str, sigma: float, hl: float, prices: pd.DataFrame, rome: dict) -> bool:
+def _passes_cost_hurdle(a: str, b: str, fit_spread: pd.Series, hl: float, prices: pd.DataFrame, rome: dict) -> bool:
+    # costs switched off (config costs.enabled: false): nothing is rejected for costs
+    if not rome["costs"]["enabled"]:
+        return True
+
     entry_z = rome["signal"]["entry_z"]
     hurdle_mult = rome["formation"]["cost_hurdle_mult"]
     notional = rome["sizing"]["min_notional_per_leg"]
+    N = rome["signal"]["zscore_lookback"]
+
+    # use the SAME sigma the z-score uses: the N-day wiggle, not the 12-month one.
+    # typical = the median of every N-day wiggle across the formation year (steadier than just the last N days)
+    rolling_sigma = fit_spread.rolling(N).std()
+    typical_sigma = rolling_sigma.median()
 
     # latest price of each leg on or before t
     price_a = prices[a].dropna().iloc[-1]
@@ -100,7 +112,7 @@ def _passes_cost_hurdle(a: str, b: str, sigma: float, hl: float, prices: pd.Data
     holding_days = hl
 
     cost = round_trip_cost(price_a, price_b, notional, holding_days, rome["costs"])
-    expected_move = entry_z * sigma
+    expected_move = entry_z * typical_sigma
 
     return expected_move > hurdle_mult * cost
 

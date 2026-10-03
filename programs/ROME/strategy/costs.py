@@ -21,6 +21,9 @@ def fill_cost(shares: float, price: float, costs_cfg: dict):
     """Total cost of ONE fill (a single buy or a single sell of one leg), in dollars.
     commission + half the bid-ask spread + FX conversion
     """
+    if not costs_cfg["enabled"]:        # costs switched off: trading is free
+        return 0.0
+
     trade_value = shares * price
     fee = _commission(shares, price, costs_cfg)
     spread_cost = trade_value * costs_cfg["half_spread_bps"] / BPS
@@ -31,6 +34,9 @@ def fill_cost(shares: float, price: float, costs_cfg: dict):
 
 def borrow_cost(short_value: float, holding_days: float, costs_cfg: dict):
     """Fee for borrowing the short leg for holding_days trading days, in dollars."""
+    if not costs_cfg["enabled"]:        # costs switched off: borrowing is free
+        return 0.0
+
     yearly_fee = short_value * costs_cfg["borrow_fee_annual"]
     return yearly_fee * holding_days / TRADING_DAYS_PER_YEAR
 
