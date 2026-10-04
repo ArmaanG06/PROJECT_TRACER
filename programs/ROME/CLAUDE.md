@@ -20,7 +20,7 @@
 - ROME = first algo: ETF pairs trading. Long the cheap leg, short the rich leg on a stretched spread,
   close on reversion.
 - Capital: C$10k total, ~C$4k deployable until a successful backtest. IBKR non-registered, CAD.
-  Minimum $1,000 notional per leg.
+  Each pair's smaller leg = config sizing.leg_notional (US$2,000 to start); the bigger leg is β-weighted.
 
 ## Repo layout
 - `data/data_pulling/`: data layer (DONE). `from data_pulling import get_prices`.
@@ -53,7 +53,9 @@ Principles:
   it's idempotent (sending the same targets twice places zero orders).
 - Holdings come from the broker: portfolio.get_portfolio() (sim) or ibkr_broker.get_portfolio() (live).
 - state_mgmt = strategy memory ONLY: pair ID, direction, frozen entry β, entry date, entry
-  half-life, Kalman β/α/P, breakdown fail count, exit-only status. No share counts.
+  half-life, entry share counts per pair (needed because one ticker can sit in several pairs; rebuilt
+  from the trade log), Kalman β/α/P, breakdown fail count, exit-only status. Holdings PER TICKER still
+  come from the broker.
 - State only moves to "open" when fills are confirmed. State is rebuilt from the trade log.
 - Live: reconcile(state vs IBKR positions) before each day. On a mismatch, halt and alert.
 - Live runs once per day after the close (scheduler), then exits. Not a forever loop.
@@ -78,14 +80,14 @@ Principles:
 | (data wrapper, TBD home) | open_prices | Working version exists: research/formation_scan.load_prices → move it here |
 | research/formation_scan.py | load_prices, refit_dates, scan, summarise (BUILT) | Kill/continue scan. Split + output dir from config `research:` |
 | models.py | HedgeFit, CointResult, PairSpec (State to come) | ALL data-only classes live here. Any file may import it without importing another stage |
-| strategy/formation.py | form_pairs(prices, t, pairs, rome) → PairSpec list (BUILT) | Takes the whole strategies.ROME section. Lookback applied in _window(t, months from config). Returns ALL pairs with status + reason; top_n marked `selected`. Cost hurdle LIVE (costs.py), sized at min_notional_per_leg, judged on the typical N-day σ (same σ as the z-score). Skipped entirely when costs.enabled is false. PairSpec.sigma is still the 12-month detrended σ (descriptive only) |
+| strategy/formation.py | form_pairs(prices, t, pairs, rome) → PairSpec list (BUILT) | Takes the whole strategies.ROME section. Lookback applied in _window(t, months from config). Returns ALL pairs with status + reason; top_n marked `selected`. Cost hurdle LIVE (costs.py), sized at sizing.leg_notional, judged on the typical N-day σ (same σ as the z-score). Skipped entirely when costs.enabled is false. PairSpec.sigma is still the 12-month detrended σ (descriptive only) |
 | strategy/stats.py | hedge_ratio, cointegration, half_life, adf_pvalue (BUILT) | Pure functions. Uses statsmodels. adf_pvalue = plain ADF on one series with a FIXED beta (breakdown); cointegration = Engle-Granger, estimates beta (formation) |
 | strategy/kalman.py | kalman_init, kalman_update | β_t, α_t, P. Used for NEW entries only (hedge.method: kalman) |
 | strategy/spread.py | pair_spread(prices, a, b, β, α) (BUILT) | spread = log(adj_a) − α − β·log(adj_b), on dates where both legs have a price. No trend term (drift removed in zscore). engine.hedge_for passes frozen β/α for open trades. Checked: matches formation's residual + trend line to 1e-15 |
 | strategy/zscore.py | zscore(spread, N) → Series of z (BUILT) | Option A: (spread − mean of previous N days) / std of previous N days. N = config signal.zscore_lookback. std 0 → NaN. Checked: hand check, no cap, look-ahead, flat cases |
 | strategy/breakdown.py | is_broken(spread, fail_count, days_open, breakdown_cfg, trend, autolag) → broken, fail_count (BUILT) | Open trades only, frozen-β spread. Tests every check_every_days; p ≥ pvalue = fail; pass resets the count; not a check day / short history = no change. Only REPORTS; signals decides force_close/hold. Engine reads/writes fail_count + days_open in state (State not built yet) |
 | strategy/signals.py | levels(signal_cfg, cost_over_sigma) → entry, exit, stop; next_action(z_today, direction, days_held, entry_half_life, broken, can_enter, entry/exit/stop levels, signal_cfg, breakdown_cfg) → new_direction, reason (BUILT) | Direction +1 long spread / −1 short / 0 flat. Open: broken(force_close) → time stop → no z = hold → stop → profit → hold. Flat: exit-only → no z → too stretched (≥ stop) → enter → flat. cost_aware: entry = max(entry_z, mult × cost/σ), stop keeps its gap above entry. 19/19 test cases pass. Reason strings go to the trade log |
-| strategy/sizing.py | target_shares(pair, action, spread, data, sizing_cfg) | Dollar-neutral, sized off spread vol. Share counts from RAW prices |
+| strategy/sizing.py | leg_dollars(beta, cfg), target_shares(direction, price_a, price_b, beta, cfg) → signed shares, gross_budget(cfg), entry_allowed(a, b, new_gross, open_trades, cfg) (BUILT) | β-weighted legs (smaller leg = leg_notional), whole shares rounded down, never one leg alone. Room check = gross budget (capital × fx × leverage) + max_pairs_per_ticker (+ optional max_pairs). Called on ENTRY only; holds keep entry shares. Share counts need RAW prices (engine TODO) |
 | strategy/costs.py | _commission (private), fill_cost, borrow_cost, round_trip_cost(price_a, price_b, notional, holding_days, costs_cfg) → fraction of notional (BUILT) | Toolbox like stats.py: formation's cost hurdle uses round_trip_cost (now LIVE); sim_broker will use fill_cost + borrow_cost. Settings in config `costs:` (estimates, verify vs IBKR). `costs.enabled: false` → fill_cost and borrow_cost return 0, so every cost (charges AND the cost-based filters) turns off together |
 | execution/state_mgmt.py | open_trade_log, load_state, save_state, rebuild_from_log, reconcile, mark_exit_only | State dataclass goes in models.py |
 | execution/trades.py | make_orders(targets, holdings) | |
@@ -130,7 +132,7 @@ Principles:
 - top_n ranking: shortest half-life, p-value breaks ties (config `rank_by: half_life | pvalue`).
 - Half-life filter: 1–30 days.
   Cost hurdle: entry_z × typical σ > 3× (config cost_hurdle_mult) round-trip cost across both legs,
-  with each leg sized at sizing.min_notional_per_leg and holding time = the half-life.
+  with each leg sized at sizing.leg_notional and holding time = the half-life.
   typical σ = median of the rolling N-day std (N = signal.zscore_lookback) of the spread over the
   formation year: the SAME σ the z-score trades on. NOT the 12-month σ (≈2× bigger, overstated every trade).
   With costs.enabled false the hurdle is skipped (every pair passes it).
@@ -160,9 +162,18 @@ Principles:
   the report's before/after-cost columns = "how much did costs drag on the trades actually taken?".
 - Costs: commission, half-spread per leg, borrow fee, FX. Short-leg dividends are already in the
   total-return series. Do NOT charge them again.
-- Sizing: dollar-neutral per pair, risk based on spread vol (not price vol).
-- Capital in config = C$10,000. max_pairs is derived: capital // (2 × min_notional_per_leg).
-  top_n is a fixed config value.
+- Sizing: β-WEIGHTED, not dollar-neutral (leg B $ = β × leg A $), so profit follows the traded spread.
+  69% of tradable pairs have β outside 0.8–1.25, where equal dollars would be badly mis-hedged.
+  Config hedge_weighting: beta | dollar. Fixed leg size (leg_notional = the smaller leg); spread-vol
+  sizing dropped (spread σ ~0.5% would ask for ~$20k legs, always capped by capital anyway).
+- How many pairs fit is NOT a set number: entries are allowed while total gross ≤ budget =
+  capital (C$10,000) × fx_cad_usd (0.73, estimate) × max_gross_leverage (2.0) = US$14,600 → ~3 pairs at
+  $2,000 legs. Changing leg_notional or leverage changes the count automatically. Optional hard cap
+  max_pairs (null now). max_pairs_per_ticker = 2. top_n = how many candidates formation offers.
+- Leg size trade-off (16 sampled train refits): $1k legs 0.49% cost, 4.9 tradable/refit · $2k 0.29%, 6.8 ·
+  $3k 0.23%, 7.4 · $5k 0.17%, 8.0. Compare 3 pairs at $2k vs 2 at $3k in the backtest.
+- Entries are handed out in formation rank order (open trades first, then selected by rank);
+  no room → "flat_no_room". Open trades keep their entry share counts until exit (no daily re-sizing).
 
 ## Research hygiene
 - Splits: train 2012–2019, validate 2020–2022, holdout 2023–now (run ONCE). Load data from 2010.
@@ -280,8 +291,8 @@ orders and exits. These are needed before paper/live. Rules marked TBD are decid
 - [x] zscore.py (wired into engine step 3; engine passes z_today, NaN if a leg has no price today)
 Phase 1, strategy side:
 - [x] breakdown.py + stats.adf_pvalue (wired into engine step 4; State parts still pseudocode)
-- [x] signals.py (wired into engine step 5; state values still placeholders; engine uses min_notional_per_leg for today's cost until sizing exists)
-- [ ] sizing.py (leg size, shared-ticker cap)
+- [x] signals.py (wired into engine step 5; state values still placeholders)
+- [x] sizing.py (wired into engine step 6; targets = {pair_id: {ticker_a: shares, ticker_b: shares, reason}})
 - [ ] fill in engine (pairs_to_manage, hedge_for) → look-ahead test
 Phase 2, execution + backtest:
 - [ ] models.State + state_mgmt.py + ROME trade log (state always rebuilt from the log)

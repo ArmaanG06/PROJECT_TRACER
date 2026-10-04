@@ -96,7 +96,7 @@ def _passes_cost_hurdle(a: str, b: str, fit_spread: pd.Series, hl: float, prices
 
     entry_z = rome["signal"]["entry_z"]
     hurdle_mult = rome["formation"]["cost_hurdle_mult"]
-    notional = rome["sizing"]["min_notional_per_leg"]
+    notional = rome["sizing"]["leg_notional"]
     N = rome["signal"]["zscore_lookback"]
 
     # use the SAME sigma the z-score uses: the N-day wiggle, not the 12-month one.

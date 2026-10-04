@@ -108,10 +108,22 @@ strategies:
 
     # --- sizing -----------------------------------------------------------
     sizing:
-      capital: 10000           # C$ → not read yet (sizing.target_shares)
-      risk_per_pair: 0.01      # fraction of capital, from SPREAD vol → not read yet (sizing.target_shares)
-      min_notional_per_leg: 1000   # → formation._passes_cost_hurdle `notional`; later sizing.target_shares
-      # max_pairs is derived, not set: capital // (2 * min_notional_per_leg)
+      capital: 10000           # C$ → sizing.gross_budget `capital_usd`
+      fx_cad_usd: 0.73         # C$1 = US$0.73. ESTIMATE, static for now → sizing.gross_budget
+      max_gross_leverage: 2.0  # total long + short dollars may be up to this x capital (IBKR margin)
+                               #   → sizing.gross_budget. 1.0 = no leverage
+      leg_notional: 2000       # USD in the SMALLER leg of every pair (the bigger leg = this / beta or x beta)
+                               #   → sizing.leg_dollars `base`, formation._passes_cost_hurdle `notional`,
+                               #     engine (today's cost). Bigger = cheaper per trade but fewer pairs fit
+      hedge_weighting: beta    # beta = leg B dollars = beta x leg A dollars (hedged on the traded spread)
+                               #   dollar = equal dollars both legs (only right when beta ~ 1) → sizing.leg_dollars
+      max_pairs: null          # optional hard cap on open pairs; null = only the gross budget limits it
+                               #   → sizing.entry_allowed `max_pairs`
+      max_pairs_per_ticker: 2  # no ticker in more than this many open pairs (e.g. HYG) → sizing.entry_allowed
+      # How many pairs fit is NOT set directly: it falls out of the budget.
+      # budget = capital x fx_cad_usd x max_gross_leverage = 10000 x 0.73 x 2 = US$14,600.
+      # one pair uses about leg_notional x (1 + bigger/smaller leg ratio): ~US$4,000-5,000 at $2,000 legs
+      # → about 3 pairs. Change leg_notional or leverage and the count changes with it.
 
     # --- costs (read by strategy/costs.py) ---------------------------------
     # ESTIMATES, NOT VERIFIED: check against your IBKR account's actual pricing plan.

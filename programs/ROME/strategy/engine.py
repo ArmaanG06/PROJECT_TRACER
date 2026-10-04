@@ -14,11 +14,11 @@ from ROME.strategy.zscore import zscore
 from ROME.strategy.breakdown import is_broken
 from ROME.strategy.signals import levels, next_action
 from ROME.strategy.costs import round_trip_cost          # toolbox: today's cost for cost_aware levels
+from ROME.strategy.sizing import entry_allowed, target_shares
 
 
 # ---- NOT BUILT YET ---------------------------------------------------------
 # from ROME.strategy.kalman import kalman_update
-# from ROME.strategy.sizing import target_shares
 
 
 def decide_targets(data: pd.DataFrame, specs: list[PairSpec], state, rome: dict):
@@ -30,11 +30,15 @@ def decide_targets(data: pd.DataFrame, specs: list[PairSpec], state, rome: dict)
     rome:  the strategies.ROME config section
 
     Returns (targets, state):
-        targets = {pair_id: target shares for each leg}  -> runner turns these into orders
+        targets = {pair_id: {ticker_a: shares, ticker_b: shares, "reason": why}}  -> runner turns these into orders
+                  (shares signed: + long, - short; trades.py must ADD UP shares per ticker across pairs)
         state   = updated strategy memory                -> runner saves it
     """
     targets = {}
+    open_trades = state_open_trades(state)       # NOT BUILT (State): [(a, b, gross), ...] for the room check
 
+    # pairs_to_manage must list OPEN trades first, then selected pairs in formation's ranking order,
+    # so the best-ranked new entries claim the room first
     for pair in pairs_to_manage(specs, state):
         # 1. which hedge ratio to use
         beta, alpha = hedge_for(pair, data, state, rome)
@@ -69,7 +73,7 @@ def decide_targets(data: pd.DataFrame, specs: list[PairSpec], state, rome: dict)
         N = rome["signal"]["zscore_lookback"]
         sigma_today = spread.iloc[-(N + 1):-1].std()
         cost = round_trip_cost(data[pair.a].iloc[-1], data[pair.b].iloc[-1],
-                               rome["sizing"]["min_notional_per_leg"],         # swap for the real leg size once sizing.py exists
+                               rome["sizing"]["leg_notional"],                 # smaller leg: the conservative cost
                                pair.half_life, rome["costs"])
         cost_over_sigma = cost / sigma_today
         entry_level, exit_level, stop_level = levels(rome["signal"], cost_over_sigma)
@@ -84,7 +88,25 @@ def decide_targets(data: pd.DataFrame, specs: list[PairSpec], state, rome: dict)
                                             rome["signal"], rome["breakdown"])
 
         # 6. how many shares of each leg we WANT to hold after tomorrow's open (0 = flat)
-        targets[pair.pair_id] = target_shares(pair, new_direction, spread, data, rome["sizing"])  # NOT BUILT
+        price_a = data[pair.a].iloc[-1]                                             # TODO: RAW close, not adjusted
+        price_b = data[pair.b].iloc[-1]                                             # TODO: RAW close, not adjusted
+
+        if reason == "enter_long" or reason == "enter_short":
+            # new trade: size it, then check there's room (gross budget + per-ticker cap)
+            shares_a, shares_b = target_shares(new_direction, price_a, price_b, beta, rome["sizing"])
+            new_gross = abs(shares_a) * price_a + abs(shares_b) * price_b
+            if shares_a == 0 or not entry_allowed(pair.a, pair.b, new_gross, open_trades, rome["sizing"]):
+                shares_a, shares_b = 0, 0
+                reason = "flat_no_room"
+            else:
+                open_trades.append((pair.a, pair.b, new_gross))                     # claims its slot for today
+        elif new_direction == 0:
+            shares_a, shares_b = 0, 0
+        else:
+            # holding an open trade: keep the share counts from entry day (no daily re-sizing)
+            shares_a, shares_b = state_entry_shares(pair, state)                    # NOT BUILT (State)
+
+        targets[pair.pair_id] = {pair.a: shares_a, pair.b: shares_b, "reason": reason}
 
     return targets, state
 
